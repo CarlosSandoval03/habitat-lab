@@ -14,6 +14,9 @@ from habitat_baselines.common.obs_transformers import (  # get_active_obs_transf
 from habitat_baselines.common.tensor_dict import TensorDict
 from habitat_baselines.config.default_structured_configs import (
     CenterCropperConfig,
+    EdgeFilterConfig,
+    PhospheneVisionConfig,
+    GrayScaleConfig,
     Cube2EqConfig,
     Cube2FishConfig,
     Eq2CubeConfig,
@@ -26,6 +29,9 @@ from habitat_baselines.config.default_structured_configs import (
     "obs_transform_config",
     [
         ResizeShortestEdgeConfig(),
+        EdgeFilterConfig(),
+        PhospheneVisionConfig(),
+        GrayScaleConfig(),
         CenterCropperConfig(),
         Cube2EqConfig(),
         Cube2FishConfig(),

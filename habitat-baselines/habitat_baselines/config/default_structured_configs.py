@@ -111,68 +111,67 @@ cs.store(
 )
 
 
-# MY CODE
-# @dataclass
-# class EdgeFilterConfig(ObsTransformConfig):
-#     type: str = "EdgeFilter"
-#     sigma: int = 3
-#     threshold_low: int = 20
-#     threshold_high: int = 40
-#     channels_last: bool = True #Comment??
-#     trans_keys: Tuple[str, ...] = ( #Comment??
-#         "rgb",
-#         "depth",
-#         "semantic",
-#     )
-#
-#
-# cs.store(
-#     package="habitat_baselines.rl.policy.obs_transforms.edge_filter",
-#     group="habitat_baselines/rl/policy/obs_transforms",
-#     name="edge_filter_base",
-#     node=EdgeFilterConfig,
-# )
-#
-#
-# class PhosphenesVisionConfig(ObsTransformConfig):
-#     type: str = "Phosphenes"
-#     size: Tuple[int, ...] = (256, 256)
-#     resolution: int = 32
-#     sigma: int = 2
-#     channels_last: bool = True #Comment??
-#     trans_keys: Tuple[str, ...] = ( #Comment??
-#         "rgb",
-#         "depth",
-#         "semantic",
-#
-#     )
-#
-#
-# cs.store(
-#     package="habitat_baselines.rl.policy.obs_transforms.phosphenes_vision",
-#     group="habitat_baselines/rl/policy/obs_transforms",
-#     name="phosphenes_vision_base",
-#     node=PhosphenesVisionConfig,
-# )
-#
-#
-# @dataclass
-# class GrayScaleConfig(ObsTransformConfig):
-#     type: str = "GrayScale"
-#     channels_last: bool = True #Comment??
-#     trans_keys: Tuple[str, ...] = ( #Comment??
-#         "rgb",
-#         "depth",
-#         "semantic",
-#     )
-#
-#
-# cs.store(
-#     package="habitat_baselines.rl.policy.obs_transforms.gray_scale",
-#     group="habitat_baselines/rl/policy/obs_transforms",
-#     name="gray_scale_base",
-#     node=GrayScaleConfig,
-# )
+# MY CODE (ALMOST sure it is not necessary)
+@dataclass
+class EdgeFilterConfig(ObsTransformConfig):
+    type: str = "EdgeFilter"
+    sigma: int = 3
+    threshold_low: int = 20
+    threshold_high: int = 40
+    channels_last: bool = True #Comment??
+    trans_keys: Tuple[str, ...] = ( #Comment??
+        "rgb",
+        "depth",
+        "semantic",
+    )
+
+
+cs.store(
+    package="habitat_baselines.rl.policy.obs_transforms.edge_filter",
+    group="habitat_baselines/rl/policy/obs_transforms",
+    name="edge_filter_base",
+    node=EdgeFilterConfig,
+)
+
+
+class PhospheneVisionConfig(ObsTransformConfig):
+    type: str = "Phosphenes"
+    size: Tuple[int, ...] = (256, 256)
+    resolution: int = 32
+    sigma: int = 2
+    channels_last: bool = True #Comment??
+    trans_keys: Tuple[str, ...] = ( #Comment??
+        "rgb",
+        "depth",
+        "semantic",
+    )
+
+
+cs.store(
+    package="habitat_baselines.rl.policy.obs_transforms.phosphene_vision",
+    group="habitat_baselines/rl/policy/obs_transforms",
+    name="phosphene_vision_base",
+    node=PhospheneVisionConfig,
+)
+
+
+@dataclass
+class GrayScaleConfig(ObsTransformConfig):
+    type: str = "GrayScale"
+    channels_last: bool = True #Comment??
+    trans_keys: Tuple[str, ...] = ( #Comment??
+        "rgb",
+        "depth",
+        "semantic",
+    )
+
+
+cs.store(
+    package="habitat_baselines.rl.policy.obs_transforms.gray_scale",
+    group="habitat_baselines/rl/policy/obs_transforms",
+    name="gray_scale_base",
+    node=GrayScaleConfig,
+)
 # END OF MY CODE
 
 
