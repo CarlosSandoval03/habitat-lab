@@ -27,7 +27,11 @@ from habitat_baselines.utils.common import batch_obs
 @dataclass
 class PPOAgentConfig:
     INPUT_TYPE: str = "rgb"
-    MODEL_PATH: str = "data/checkpoints/gibson-rgb-best.pth"
+    # MODEL_PATH: str = "data/checkpoints/gibson-rgb-best.pth"
+
+    # Change for including pretrained models
+    MODEL_PATH: str = "data/pretrained_models/gibson-rgbd-best2.pth"
+
     RESOLUTION: int = 256
     HIDDEN_SIZE: int = 512
     RANDOM_SEED: int = 7

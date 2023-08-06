@@ -172,6 +172,25 @@ cs.store(
     name="gray_scale_base",
     node=GrayScaleConfig,
 )
+
+
+@dataclass
+class BlackScreenConfig(ObsTransformConfig):
+    type: str = "BlackScreen"
+    channels_last: bool = True #Comment??
+    trans_keys: Tuple[str, ...] = ( #Comment??
+        "rgb",
+        "depth",
+        "semantic",
+    )
+
+
+cs.store(
+    package="habitat_baselines.rl.policy.obs_transforms.black_screen",
+    group="habitat_baselines/rl/policy/obs_transforms",
+    name="black_screen_base",
+    node=BlackScreenConfig,
+)
 # END OF MY CODE
 
 
@@ -410,7 +429,7 @@ class DDPPOConfig(HabitatBaselinesBaseConfig):
     num_recurrent_layers: int = 1
     backbone: str = "resnet18"
     # Visual encoder backbone
-    pretrained_weights: str = "data/ddppo-models/gibson-2plus-resnet50.pth"
+    pretrained_weights: str = "data/pretrained_models/gibson-rgbd-best.pth"
     # Initialize with pretrained weights
     pretrained: bool = False
     # Loads just the visual encoder backbone weights
