@@ -40,6 +40,9 @@ def construct_envs(
     scenes = config.habitat.dataset.content_scenes
     if "*" in config.habitat.dataset.content_scenes:
         scenes = dataset.get_scenes_to_load(config.habitat.dataset)
+    else:
+        scenes = list(scenes)
+        # scenes = list(scenes[0])
 
     if num_environments < 1:
         raise RuntimeError("num_environments must be strictly positive")

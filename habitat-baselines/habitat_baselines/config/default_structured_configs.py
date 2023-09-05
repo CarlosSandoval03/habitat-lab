@@ -148,12 +148,32 @@ class PhospheneVisionConfig(ObsTransformConfig):
 
 
 cs.store(
-    package="habitat_baselines.rl.policy.obs_transforms.phosphene_vision",
+    package="habitat_baselines.rl.policy.obs_transforms.phosphenes_vision",
     group="habitat_baselines/rl/policy/obs_transforms",
-    name="phosphene_vision_base",
+    name="phosphenes_vision_base",
     node=PhospheneVisionConfig,
 )
 
+
+class PhospheneVisionRealisticConfig(ObsTransformConfig):
+    type: str = "PhosphenesRealistic"
+    resolution: int = 32
+    intensity_decay: float = 0.4
+    num_electrodes: int = 256
+    channels_last: bool = True #Comment??
+    trans_keys: Tuple[str, ...] = ( #Comment??
+        "rgb",
+        "depth",
+        "semantic",
+    )
+
+
+cs.store(
+    package="habitat_baselines.rl.policy.obs_transforms.phosphenes_vision_realistic",
+    group="habitat_baselines/rl/policy/obs_transforms",
+    name="phosphenes_vision_realistic_base",
+    node=PhospheneVisionRealisticConfig,
+)
 
 @dataclass
 class GrayScaleConfig(ObsTransformConfig):

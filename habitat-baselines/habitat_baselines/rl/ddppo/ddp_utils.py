@@ -72,7 +72,8 @@ def is_slurm_batch_job() -> bool:
 
 
 def resume_state_filename(config: DictConfig, filename_key: str = "") -> str:
-    fname = RESUME_STATE_BASE_NAME
+    fname = RESUME_STATE_BASE_NAME # By default
+    # fname = ".habitat-resume-state_with_actor_critic"
 
     if (
         is_slurm_job()
