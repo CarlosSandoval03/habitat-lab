@@ -6,7 +6,7 @@
 
 
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -38,6 +38,13 @@ from habitat_baselines.utils.common import get_num_actions
 
 if TYPE_CHECKING:
     from omegaconf import DictConfig
+
+# Start E2E block
+from habitat_baselines.common.obs_transformers import ObservationTransformer
+import matplotlib.pyplot as plt
+import copy
+import pdb
+# End E2E block
 
 
 @baseline_registry.register_policy
@@ -219,16 +226,30 @@ class ResNetEncoder(nn.Module):
         if self.is_blind:
             return None
 
+        # cnn_input = []
+        # for k in self.visual_keys:
+        #     obs_k = observations[k]
+            # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]
+            # obs_k = obs_k.permute(0, 3, 1, 2)
+            # if self.key_needs_rescaling[k] is not None:
+            #     obs_k = (
+            #         obs_k.float() * self.key_needs_rescaling[k]
+            #     )  # normalize
+            # cnn_input.append(obs_k)
+
+        # Start E2E block (changed previous code piece)
         cnn_input = []
         for k in self.visual_keys:
             obs_k = observations[k]
             # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]
             obs_k = obs_k.permute(0, 3, 1, 2)
             if self.key_needs_rescaling[k] is not None:
-                obs_k = (
-                    obs_k.float() * self.key_needs_rescaling[k]
-                )  # normalize
+                if obs_k.max() > 10.0:
+                    obs_k = (obs_k.float() * self.key_needs_rescaling[k])
+                else:
+                    obs_k = obs_k.float()
             cnn_input.append(obs_k)
+        # End E2E block
 
         x = torch.cat(cnn_input, dim=1)
         x = F.avg_pool2d(x, 2)
@@ -451,6 +472,9 @@ class PointNavResNetNet(Net):
     def perception_embedding_size(self):
         return self._hidden_size
 
+    """
+    # This forward function is untouched, but in the E2E files the
+    # forward function was modified besides adding the forward_e2e
     def forward(
         self,
         observations: Dict[str, torch.Tensor],
@@ -594,3 +618,337 @@ class PointNavResNetNet(Net):
         aux_loss_state["rnn_output"] = out
 
         return out, rnn_hidden_states, aux_loss_state
+    """
+
+    # Added function for E2E blocks
+    def forward_e2e(
+        self,
+        obs_transforms: Iterable[ObservationTransformer],  # add E2E
+        observations_orig: Dict[str, torch.Tensor],  # add
+        rnn_hidden_states,
+        prev_actions,
+        masks,
+        decoder,  # add E2E
+        rnn_build_seq_info: Optional[Dict[str, torch.Tensor]] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
+        x = []
+        # Start E2E block
+        observations_gray = obs_transforms[0](observations_orig)
+        stimulations = obs_transforms[1](observations_gray)
+        phosphenes = obs_transforms[2](stimulations)
+        observations = phosphenes
+        # End E2E block
+
+        aux_loss_state = {}
+        if not self.is_blind:
+            # We CANNOT use observations.get() here because self.visual_encoder(observations)
+            # is an expensive operation. Therefore, we need `# noqa: SIM401`
+            if (  # noqa: SIM401
+                PointNavResNetNet.PRETRAINED_VISUAL_FEATURES_KEY
+                in observations
+            ):
+                visual_feats = observations[
+                    PointNavResNetNet.PRETRAINED_VISUAL_FEATURES_KEY
+                ]
+            else:
+                visual_feats = self.visual_encoder(observations)
+
+            visual_feats = self.visual_fc(visual_feats)
+            aux_loss_state["perception_embed"] = visual_feats
+            x.append(visual_feats)
+
+        if len(self._fuse_keys_1d) != 0:
+            fuse_states = torch.cat(
+                [observations[k] for k in self._fuse_keys_1d], dim=-1
+            )
+            x.append(fuse_states.float())
+
+        if IntegratedPointGoalGPSAndCompassSensor.cls_uuid in observations:
+            goal_observations = observations[
+                IntegratedPointGoalGPSAndCompassSensor.cls_uuid
+            ]
+            if goal_observations.shape[1] == 2:
+                # Polar Dimensionality 2
+                # 2D polar transform
+                goal_observations = torch.stack(
+                    [
+                        goal_observations[:, 0],
+                        torch.cos(-goal_observations[:, 1]),
+                        torch.sin(-goal_observations[:, 1]),
+                    ],
+                    -1,
+                )
+            else:
+                assert (
+                    goal_observations.shape[1] == 3
+                ), "Unsupported dimensionality"
+                vertical_angle_sin = torch.sin(goal_observations[:, 2])
+                # Polar Dimensionality 3
+                # 3D Polar transformation
+                goal_observations = torch.stack(
+                    [
+                        goal_observations[:, 0],
+                        torch.cos(-goal_observations[:, 1])
+                        * vertical_angle_sin,
+                        torch.sin(-goal_observations[:, 1])
+                        * vertical_angle_sin,
+                        torch.cos(goal_observations[:, 2]),
+                    ],
+                    -1,
+                )
+
+            x.append(self.tgt_embeding(goal_observations))
+
+        if PointGoalSensor.cls_uuid in observations:
+            goal_observations = observations[PointGoalSensor.cls_uuid]
+            x.append(self.pointgoal_embedding(goal_observations))
+
+        if ProximitySensor.cls_uuid in observations:
+            sensor_observations = observations[ProximitySensor.cls_uuid]
+            x.append(self.proximity_embedding(sensor_observations))
+
+        if HeadingSensor.cls_uuid in observations:
+            sensor_observations = observations[HeadingSensor.cls_uuid]
+            sensor_observations = torch.stack(
+                [
+                    torch.cos(sensor_observations[0]),
+                    torch.sin(sensor_observations[0]),
+                ],
+                -1,
+            )
+            x.append(self.heading_embedding(sensor_observations))
+
+        if ObjectGoalSensor.cls_uuid in observations:
+            object_goal = observations[ObjectGoalSensor.cls_uuid].long()
+            x.append(self.obj_categories_embedding(object_goal).squeeze(dim=1))
+
+        if EpisodicCompassSensor.cls_uuid in observations:
+            compass_observations = torch.stack(
+                [
+                    torch.cos(observations[EpisodicCompassSensor.cls_uuid]),
+                    torch.sin(observations[EpisodicCompassSensor.cls_uuid]),
+                ],
+                -1,
+            )
+            x.append(
+                self.compass_embedding(compass_observations.squeeze(dim=1))
+            )
+
+        if EpisodicGPSSensor.cls_uuid in observations:
+            x.append(
+                self.gps_embedding(observations[EpisodicGPSSensor.cls_uuid])
+            )
+
+        for uuid in [
+            ImageGoalSensor.cls_uuid,
+            InstanceImageGoalSensor.cls_uuid,
+        ]:
+            if uuid in observations:
+                goal_image = observations[uuid]
+
+                goal_visual_encoder = getattr(self, f"{uuid}_encoder")
+                goal_visual_output = goal_visual_encoder({"rgb": goal_image})
+
+                goal_visual_fc = getattr(self, f"{uuid}_fc")
+                x.append(goal_visual_fc(goal_visual_output))
+
+        if self.discrete_actions:
+            prev_actions = prev_actions.squeeze(-1)
+            start_token = torch.zeros_like(prev_actions)
+            # The mask means the previous action will be zero, an extra dummy action
+            prev_actions = self.prev_action_embedding(
+                torch.where(masks.view(-1), prev_actions + 1, start_token)
+            )
+        else:
+            prev_actions = self.prev_action_embedding(
+                masks * prev_actions.float()
+            )
+
+        x.append(prev_actions)
+
+        out = torch.cat(x, dim=1)
+        out, rnn_hidden_states = self.state_encoder(
+            out, rnn_hidden_states, masks, rnn_build_seq_info
+        )
+        aux_loss_state["rnn_output"] = out
+
+        # Start E2E block
+        reconstructions = decoder(phosphenes)
+        # End E2E block
+
+        return out, rnn_hidden_states, aux_loss_state, observations_gray, stimulations, phosphenes, reconstructions
+
+    # Add function forward (mixed for e2e purposes)
+    # THIS WAS CHANGED TO RETURN CLONES OF 'rgb' of OBS/PHOSS/ETC
+    def forward(
+        self,
+        obs_transforms: Iterable[ObservationTransformer],  # Add E2E
+        observations_orig: Dict[str, torch.Tensor],  # Add E2E
+        rnn_hidden_states,
+        prev_actions,
+        masks,
+        decoder,  # Add E2E
+        act=False,  # Add E2E
+        rnn_build_seq_info: Optional[Dict[str, torch.Tensor]] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
+        x = []
+
+        # Start E2E block
+        if not act:
+            observations_gray = obs_transforms[0](observations_orig)
+            observations_gray_clone = observations_gray['rgb'].clone()
+            stimulations = obs_transforms[1](observations_gray)
+            stimulations_clone = stimulations['rgb'].clone()
+            phosphenes = obs_transforms[2](stimulations)
+            phosphenes_clone = phosphenes['rgb'].clone()
+
+            observations = phosphenes
+
+        elif act:
+            observations = observations_orig
+
+            stimulations = None  # My add, if not then error while return
+            phosphenes = None  # My add, if not then error while return
+            observations_gray_clone = None
+            stimulations_clone = None
+            phosphenes_clone = None
+            reconstructions = None
+        # End E2E block
+
+        aux_loss_state = {}
+        if not self.is_blind:
+            # We CANNOT use observations.get() here because self.visual_encoder(observations)
+            # is an expensive operation. Therefore, we need `# noqa: SIM401`
+            if (  # noqa: SIM401
+                PointNavResNetNet.PRETRAINED_VISUAL_FEATURES_KEY
+                in observations
+            ):
+                visual_feats = observations[
+                    PointNavResNetNet.PRETRAINED_VISUAL_FEATURES_KEY
+                ]
+            else:
+                visual_feats = self.visual_encoder(observations)
+
+            visual_feats = self.visual_fc(visual_feats)
+            aux_loss_state["perception_embed"] = visual_feats
+            x.append(visual_feats)
+
+        if len(self._fuse_keys_1d) != 0:
+            fuse_states = torch.cat(
+                [observations[k] for k in self._fuse_keys_1d], dim=-1
+            )
+            x.append(fuse_states.float())
+
+        if IntegratedPointGoalGPSAndCompassSensor.cls_uuid in observations:
+            goal_observations = observations[
+                IntegratedPointGoalGPSAndCompassSensor.cls_uuid
+            ]
+            if goal_observations.shape[1] == 2:
+                # Polar Dimensionality 2
+                # 2D polar transform
+                goal_observations = torch.stack(
+                    [
+                        goal_observations[:, 0],
+                        torch.cos(-goal_observations[:, 1]),
+                        torch.sin(-goal_observations[:, 1]),
+                    ],
+                    -1,
+                )
+            else:
+                assert (
+                    goal_observations.shape[1] == 3
+                ), "Unsupported dimensionality"
+                vertical_angle_sin = torch.sin(goal_observations[:, 2])
+                # Polar Dimensionality 3
+                # 3D Polar transformation
+                goal_observations = torch.stack(
+                    [
+                        goal_observations[:, 0],
+                        torch.cos(-goal_observations[:, 1])
+                        * vertical_angle_sin,
+                        torch.sin(-goal_observations[:, 1])
+                        * vertical_angle_sin,
+                        torch.cos(goal_observations[:, 2]),
+                    ],
+                    -1,
+                )
+
+            x.append(self.tgt_embeding(goal_observations))
+
+        if PointGoalSensor.cls_uuid in observations:
+            goal_observations = observations[PointGoalSensor.cls_uuid]
+            x.append(self.pointgoal_embedding(goal_observations))
+
+        if ProximitySensor.cls_uuid in observations:
+            sensor_observations = observations[ProximitySensor.cls_uuid]
+            x.append(self.proximity_embedding(sensor_observations))
+
+        if HeadingSensor.cls_uuid in observations:
+            sensor_observations = observations[HeadingSensor.cls_uuid]
+            sensor_observations = torch.stack(
+                [
+                    torch.cos(sensor_observations[0]),
+                    torch.sin(sensor_observations[0]),
+                ],
+                -1,
+            )
+            x.append(self.heading_embedding(sensor_observations))
+
+        if ObjectGoalSensor.cls_uuid in observations:
+            object_goal = observations[ObjectGoalSensor.cls_uuid].long()
+            x.append(self.obj_categories_embedding(object_goal).squeeze(dim=1))
+
+        if EpisodicCompassSensor.cls_uuid in observations:
+            compass_observations = torch.stack(
+                [
+                    torch.cos(observations[EpisodicCompassSensor.cls_uuid]),
+                    torch.sin(observations[EpisodicCompassSensor.cls_uuid]),
+                ],
+                -1,
+            )
+            x.append(
+                self.compass_embedding(compass_observations.squeeze(dim=1))
+            )
+
+        if EpisodicGPSSensor.cls_uuid in observations:
+            x.append(
+                self.gps_embedding(observations[EpisodicGPSSensor.cls_uuid])
+            )
+
+        for uuid in [
+            ImageGoalSensor.cls_uuid,
+            InstanceImageGoalSensor.cls_uuid,
+        ]:
+            if uuid in observations:
+                goal_image = observations[uuid]
+
+                goal_visual_encoder = getattr(self, f"{uuid}_encoder")
+                goal_visual_output = goal_visual_encoder({"rgb": goal_image})
+
+                goal_visual_fc = getattr(self, f"{uuid}_fc")
+                x.append(goal_visual_fc(goal_visual_output))
+
+        if self.discrete_actions:
+            prev_actions = prev_actions.squeeze(-1)
+            start_token = torch.zeros_like(prev_actions)
+            # The mask means the previous action will be zero, an extra dummy action
+            prev_actions = self.prev_action_embedding(
+                torch.where(masks.view(-1), prev_actions + 1, start_token)
+            )
+        else:
+            prev_actions = self.prev_action_embedding(
+                masks * prev_actions.float()
+            )
+
+        x.append(prev_actions)
+
+        out = torch.cat(x, dim=1)
+        out, rnn_hidden_states = self.state_encoder(
+            out, rnn_hidden_states, masks, rnn_build_seq_info
+        )
+        aux_loss_state["rnn_output"] = out
+
+        if not act:
+            reconstructions = decoder(phosphenes)
+
+        return out, rnn_hidden_states, aux_loss_state, observations_gray_clone, stimulations_clone, phosphenes_clone, reconstructions

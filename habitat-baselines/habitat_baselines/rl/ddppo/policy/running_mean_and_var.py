@@ -9,6 +9,8 @@ from torch import Tensor
 from torch import distributed as distrib
 from torch import nn as nn
 
+# Add E2E line
+import pdb
 
 class RunningMeanAndVar(nn.Module):
     def __init__(self, n_channels: int) -> None:
@@ -21,7 +23,9 @@ class RunningMeanAndVar(nn.Module):
         self._var: torch.Tensor = self._var
         self._count: torch.Tensor = self._count
 
+    # original code- not differentiable!
     def forward(self, x: Tensor) -> Tensor:
+        return x # Added, then changes inside the if are irrelevant but I still did them.
         if self.training:
             n = x.size(0)
             # We will need to do reductions (mean) over the channel dimension,
@@ -63,9 +67,12 @@ class RunningMeanAndVar(nn.Module):
             )
 
             self._var = M2 / (self._count + new_count)
-            self._mean = (self._count * self._mean + new_count * new_mean) / (
-                self._count + new_count
-            )
+            sum = self._count + new_count # Added E2E
+            _mean2 = (self._count * self._mean + new_count * new_mean)  # / sum
+            _mean3 = _mean2 / (self._count + new_count)
+            self._mean = _mean3
+            # Now the code does the same as before just couple more lines. The change
+            # perhaps was to normalize it by sum, but it is commented.
 
             self._count += new_count
 

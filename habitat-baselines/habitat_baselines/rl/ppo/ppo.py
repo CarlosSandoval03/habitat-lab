@@ -6,7 +6,7 @@
 
 import collections
 import inspect
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Iterable, Tuple
 
 import torch
 import torch.nn as nn
@@ -26,8 +26,26 @@ from habitat_baselines.utils.common import (
 )
 from habitat_baselines.utils.timing import g_timer
 
+# Attempt to make it possible to import phosphenes
+import sys
+sys.path.append('/scratch/big/home/carsan/Internship/PyCharm_projects/habitat-phosphenes')
+
+from habitat_baselines.common.obs_transformers import ObservationTransformer
+from phosphenes import CustomLoss
+
+
+import pdb
+import gc
+
+
 EPS_PPO = 1e-5
 
+# Start E2E block
+loss_function = CustomLoss(recon_loss_type='mse',
+                                            recon_loss_param=0,
+                                            stimu_loss_type=None,
+                                            kappa=0)
+# End E2E block
 
 @baseline_registry.register_updater
 class PPO(nn.Module, Updater):
@@ -52,6 +70,8 @@ class PPO(nn.Module, Updater):
 
     def __init__(
         self,
+        obs_transforms,  # E2E change
+        decoder,  # E2E Change
         actor_critic: NetPolicy,
         clip_param: float,
         ppo_epoch: int,
@@ -61,11 +81,13 @@ class PPO(nn.Module, Updater):
         lr: Optional[float] = None,
         eps: Optional[float] = None,
         max_grad_norm: Optional[float] = None,
-        use_clipped_value_loss: bool = False,
+        use_clipped_value_loss: bool = True,
+        # Changed. Original False, but True in Burcu's.
         use_normalized_advantage: bool = True,
         entropy_target_factor: float = 0.0,
         use_adaptive_entropy_pen: bool = False,
     ) -> None:
+
         super().__init__()
 
         self.actor_critic = actor_critic
@@ -79,8 +101,6 @@ class PPO(nn.Module, Updater):
 
         self.max_grad_norm = max_grad_norm
         self.use_clipped_value_loss = use_clipped_value_loss
-
-        self.device = next(actor_critic.parameters()).device
 
         if (
             use_adaptive_entropy_pen
@@ -98,9 +118,31 @@ class PPO(nn.Module, Updater):
                 greater_than=True,
             ).to(device=self.device)
 
-        self.use_normalized_advantage = use_normalized_advantage
-
         params = list(filter(lambda p: p.requires_grad, self.parameters()))
+
+        # Start E2E block
+        parameter_list = []
+
+        for transform in obs_transforms:
+            for p in transform.parameters():
+                if hasattr(p, "requires_grad") and p.requires_grad:
+                    print(str(transform)[:6])
+                    parameter_list.append(p)
+
+        for p in actor_critic.parameters():
+            if hasattr(p, "requires_grad") and p.requires_grad:
+                print('actor')
+                parameter_list.append(p)
+
+        for p in decoder.parameters():
+            if hasattr(p, "requires_grad") and p.requires_grad:
+                print('decoder')
+                parameter_list.append(p)
+
+        print('whole list', len(parameter_list))
+
+        params = parameter_list
+        # End E2E block
 
         if len(params) > 0:
             optim_cls = optim.Adam
@@ -129,6 +171,9 @@ class PPO(nn.Module, Updater):
             for name, p in self.named_parameters()
             if not name.startswith("actor_critic.")
         ]
+
+        self.device = next(actor_critic.parameters()).device
+        self.use_normalized_advantage = use_normalized_advantage
 
     def forward(self, *x):
         raise NotImplementedError
@@ -297,6 +342,120 @@ class PPO(nn.Module, Updater):
                     "policy_version_difference",
                 )
 
+    # Start E2E block
+    def _update_from_batch_e2e(self, batch, epoch, rollouts: RolloutStorage,
+                               learner_metrics, obs_transforms, decoder):
+        """
+                Performs a gradient update from the minibatch.
+                """
+
+        def record_min_mean_max(t: torch.Tensor, prefix: str):
+            for name, op in (
+                ("min", torch.min),
+                ("mean", torch.mean),
+                ("max", torch.max),
+            ):
+                learner_metrics[f"{prefix}_{name}"].append(op(t))
+
+        self._set_grads_to_none()
+
+        # added
+        weight_loss_ppo = 0.3
+
+        (
+            values,
+            action_log_probs,
+            dist_entropy,
+            _,
+            observations_gray,
+            update_stimulations,
+            update_phosphenes,
+            update_reconstructions
+        ) = self._evaluate_actions_e2e(
+            # this is the where the forward pass happens
+            obs_transforms,
+            batch["observations_orig"],
+            # batch["observations"],
+            batch["recurrent_hidden_states"],
+            batch["prev_actions"],
+            batch["masks"],
+            batch["actions"],
+            decoder,
+        )
+
+        ratio = torch.exp(action_log_probs - batch["action_log_probs"])
+        surr1 = ratio * batch["advantages"]
+        surr2 = (
+            torch.clamp(
+                ratio,
+                1.0 - self.clip_param,
+                1.0 + self.clip_param
+            )
+            * batch["advantages"]
+        )
+        action_loss = -(torch.min(surr1, surr2).mean())
+
+        values = values.float()
+        orig_values = values
+
+        if self.use_clipped_value_loss:
+            delta = values.detach() - batch["value_preds"]
+            value_pred_clipped = batch["value_preds"] + delta.clamp(
+                -self.clip_param, self.clip_param
+            )
+
+            values = torch.where(
+                delta.abs() < self.clip_param,
+                values,
+                value_pred_clipped,
+            )
+
+        value_loss = 0.5 * F.mse_loss(
+            values, batch["returns"], reduction="none"
+        )
+        dist_entropy = dist_entropy.mean()
+
+        if "is_coeffs" in batch:
+            assert isinstance(batch["is_coeffs"], torch.Tensor)
+            ver_is_coeffs = batch["is_coeffs"].clamp(max=1.0)
+            mean_fn = lambda t: torch.mean(ver_is_coeffs * t)
+        else:
+            mean_fn = torch.mean
+
+        self.optimizer.zero_grad()
+
+        action_loss, value_loss, dist_entropy = map(
+            mean_fn,
+            (action_loss, value_loss, dist_entropy),
+        )
+
+        ppo_loss = (
+            value_loss * self.value_loss_coef
+            + action_loss
+            - dist_entropy * self.entropy_coef
+        )
+
+        stim_loss, recon_loss, spars_loss = loss_function(
+            image=observations_gray,
+            stimulation=update_stimulations,
+            phosphenes=update_phosphenes,
+            reconstruction=update_reconstructions)
+
+        total_loss = weight_loss_ppo * ppo_loss + (
+                1 - weight_loss_ppo) * torch.mean(stim_loss)
+        self.before_backward(total_loss)
+        torch.use_deterministic_algorithms(False)
+        total_loss.backward()
+        torch.use_deterministic_algorithms(True)
+        self.after_backward(total_loss)
+
+        grad_norm = self.before_step()
+        self.optimizer.step()
+        self.after_step()
+
+        return value_loss, action_loss, dist_entropy, recon_loss, spars_loss, stim_loss, ppo_loss, total_loss, grad_norm
+    # End E2E block
+
     def update(
         self,
         rollouts: RolloutStorage,
@@ -330,12 +489,145 @@ class PPO(nn.Module, Updater):
                 for k, vs in learner_metrics.items()
             }
 
+    # Start E2E block
+    def update_e2e(self, rollouts: RolloutStorage,
+                   obs_transforms: Iterable[ObservationTransformer],
+                   decoder) -> Dict[str, float]:
+        value_loss_epoch = 0.0
+        action_loss_epoch = 0.0
+        dist_entropy_epoch = 0.0
+
+        # added
+        recon_loss_epoch = 0.0
+        spars_loss_epoch = 0.0
+
+        stim_loss_epoch = 0.0
+        ppo_loss_epoch = 0.0
+
+        total_loss_epoch = 0.0
+
+        advantages = self.get_advantages(rollouts)
+
+        learner_metrics: Dict[str, List[Any]] = collections.defaultdict(list)
+
+        for epoch in range(self.ppo_epoch):
+            profiling_wrapper.range_push("PPO.update epoch")
+            data_generator = rollouts.data_generator(
+                advantages, self.num_mini_batch
+            )
+
+            for _bid, batch in enumerate(data_generator):
+                value_loss, action_loss, dist_entropy, recon_loss, spars_loss, stim_loss, ppo_loss, total_loss, grad_norm = self._update_from_batch_e2e(
+                    batch, epoch, rollouts, learner_metrics, obs_transforms,
+                    decoder
+                )
+
+                value_loss_epoch += value_loss.item()
+                action_loss_epoch += action_loss.item()
+                dist_entropy_epoch += dist_entropy.item()
+
+                recon_loss_epoch += recon_loss.item()
+                spars_loss_epoch += spars_loss.item()
+
+                stim_loss_epoch += stim_loss.item()
+                ppo_loss_epoch += ppo_loss.item()
+
+                total_loss_epoch += total_loss.item()
+
+                # Need to continue reviewing this last part to record variables
+                with inference_mode():
+                    if "is_coeffs" in batch:
+                        record_min_mean_max(batch["is_coeffs"],
+                                            "ver_is_coeffs")
+                    record_min_mean_max(orig_values, "value_pred")
+                    record_min_mean_max(ratio, "prob_ratio")
+
+                    learner_metrics["value_loss"].append(value_loss)
+                    learner_metrics["action_loss"].append(action_loss)
+                    learner_metrics["dist_entropy"].append(dist_entropy)
+                    if epoch == (self.ppo_epoch - 1):
+                        learner_metrics["ppo_fraction_clipped"].append(
+                            (ratio > (1.0 + self.clip_param)).float().mean()
+                            + (ratio < (1.0 - self.clip_param)).float().mean()
+                        )
+
+                    learner_metrics["grad_norm"].append(grad_norm)
+                    if isinstance(self.entropy_coef,
+                                  LagrangeInequalityCoefficient):
+                        learner_metrics["entropy_coef"].append(
+                            self.entropy_coef().detach()
+                        )
+
+                    for name, res in aux_loss_res.items():
+                        for k, v in res.items():
+                            learner_metrics[f"aux_{name}_{k}"].append(
+                                v.detach())
+
+                    if "is_stale" in batch:
+                        assert isinstance(batch["is_stale"], torch.Tensor)
+                        learner_metrics["fraction_stale"].append(
+                            batch["is_stale"].float().mean()
+                        )
+
+                    if isinstance(rollouts, VERRolloutStorage):
+                        assert isinstance(batch["policy_version"],
+                                          torch.Tensor)
+                        record_min_mean_max(
+                            (
+                                rollouts.current_policy_version
+                                - batch["policy_version"]
+                            ).float(),
+                            "policy_version_difference",
+                        )
+
+            profiling_wrapper.range_pop()  # PPO.update epoch
+
+        num_updates = self.ppo_epoch * self.num_mini_batch
+
+        value_loss_epoch /= num_updates
+        action_loss_epoch /= num_updates
+        dist_entropy_epoch /= num_updates
+
+        recon_loss_epoch /= num_updates
+        spars_loss_epoch /= num_updates
+
+        stim_loss_epoch /= num_updates
+        ppo_loss_epoch /= num_updates
+
+        total_loss_epoch /= num_updates
+
+        self._set_grads_to_none()
+
+        # The decision of which return method to use or if combine them depends on which variable I record in the learner_metrics array
+        with inference_mode():
+            return {
+                k: float(
+                    torch.stack(
+                        [torch.as_tensor(v, dtype=torch.float32) for v in vs]
+                    ).mean()
+                )
+                for k, vs in learner_metrics.items()
+            }
+
+        return value_loss_epoch, action_loss_epoch, dist_entropy_epoch, recon_loss_epoch, spars_loss_epoch, stim_loss_epoch, ppo_loss_epoch, total_loss_epoch
+    # End E2E block
+
     @g_timer.avg_time("ppo.eval_actions", level=1)
     def _evaluate_actions(self, *args, **kwargs):
         r"""Internal method that calls Policy.evaluate_actions.  This is used instead of calling
         that directly so that that call can be overrided with inheritance
         """
         return self.actor_critic.evaluate_actions(*args, **kwargs)
+
+    # Start E2E block
+    def _evaluate_actions_e2e(
+        self,  *args, **kwargs):
+        # print('_evaluate_actions_e2e in ppo.py')
+        r"""Internal method that calls Policy.evaluate_actions.  This is used instead of calling
+        that directly so that that call can be overrided with inheritance
+        """
+        return self.actor_critic.evaluate_actions_e2e(*args, **kwargs)
+    # End E2E block
 
     def before_backward(self, loss: Tensor) -> Tensor:
         return loss

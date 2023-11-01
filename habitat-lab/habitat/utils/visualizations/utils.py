@@ -17,6 +17,13 @@ from habitat.core.utils import try_cv2_import
 from habitat.utils.common import flatten_dict
 from habitat.utils.visualizations import maps
 
+from PIL import Image
+import matplotlib.pyplot as plt
+import pdb
+import copy
+import skimage
+
+
 cv2 = try_cv2_import()
 
 
@@ -173,7 +180,15 @@ def tile_images(render_obs_images: List[np.ndarray]) -> np.ndarray:
     render_obs_images = sorted(
         render_obs_images, key=lambda x: x.shape[0], reverse=True
     )
+
+    # Start E2E block
+    # img_cols = [[(render_obs_images[0] / 255.0).astype("float")]]  # USE IF USING COLORED IMAGE
+    # End E2E block
+
+    # Start NO E2E block (normal)
     img_cols = [[render_obs_images[0]]]
+    # End NO E2E block
+
     max_height = render_obs_images[0].shape[0]
     cur_y = 0.0
     # Arrange the images in columns with the largest image to the left.
@@ -193,17 +208,45 @@ def tile_images(render_obs_images: List[np.ndarray]) -> np.ndarray:
 
     # Tile the images, pasting the columns side by side.
     final_im = np.zeros(
+        # Start E2E block
+        # (max_height, total_width, 3), dtype=render_obs_images[1].dtype
+        # End E2E block
+
+        # Start NO E2E block (normal)
         (max_height, total_width, 3), dtype=render_obs_images[0].dtype
+        # End NO E2E block (normal)
     )
     cur_x = 0
     for i in range(len(img_cols)):
         next_x = cur_x + col_widths[i]
+        # Start NO E2E block (normal)
         total_col_im = np.concatenate(img_cols[i], axis=0)
+        # End NO E2E block (normal)
+
+        # Start E2E block
+        # if len(img_cols[i])==2 and img_cols[i][0].shape[0]!=img_cols[i][1].shape[0]:
+        #
+        #     first2=img_cols[i][0][:,:,0]
+        #     second2=cv2.resize(img_cols[i][1][:,:,0], (128,128), interpolation=cv2.INTER_AREA)
+        #     #plt.imsave('/home/burkuc/data/habitatai/images/img_cols22.png', first2, cmap=plt.cm.gray)
+        #     #plt.imsave('/home/burkuc/data/habitatai/images/img_cols32.png', second2, cmap=plt.cm.gray) #correct!
+            # second2 -= np.min(second2)
+            # second2 /= np.max(second2)
+            #
+            # total_col_im = np.concatenate((first2, second2), axis=0) #where it goes wrong!
+            #
+            # #plt.imsave('/home/burkuc/data/habitatai/images/img_cols_total.png', copy.deepcopy(total_col_im), cmap=plt.cm.gray)
+            # total_col_im= np.stack((total_col_im,)*3,axis=2) #UNCOMMENT
+        # else:
+        #     total_col_im = np.concatenate(img_cols[i], axis=0)
+        # End E2E block
+
         final_im[: total_col_im.shape[0], cur_x:next_x] = total_col_im
         cur_x = next_x
     return final_im
 
 
+# Start NO E2E block (normal)
 def observations_to_image(observation: Dict, info: Dict) -> np.ndarray:
     r"""Generate image of single frame from observation and info
     returned from a single environment step().
@@ -250,8 +293,264 @@ def observations_to_image(observation: Dict, info: Dict) -> np.ndarray:
         )
         render_frame = np.concatenate((render_frame, top_down_map), axis=1)
     return render_frame
+# End NO E2E block (normal)
+
+# Start E2E block
+# def observations_to_image(observation: Dict, info: Dict, obs_gray: Dict, obs_processed: Dict, obs_orig: Dict) -> np.ndarray:
+#     r"""Generate image of single frame from observation and info
+#     returned from a single environment step().
+#
+#     Args:
+#         observation: observation returned from an environment step().
+#         info: info returned from an environment step().
+#
+#     Returns:
+#         generated image of a single frame.
+#     """
+    # render_obs_images: List[np.ndarray] = []
+    #
+    # for sensor_name in obs_orig:
+    #     if "rgb" in sensor_name:
+    #         rgb_orig = obs_orig[sensor_name]
+    #         if not isinstance(rgb_orig, np.ndarray):
+    #             rgb_orig = rgb_orig.cpu().numpy()
+    #
+    #         render_obs_images.append(rgb_orig)
+    #
+    #     elif "depth" in sensor_name:
+    #         depth_map = obs_orig[sensor_name].squeeze() * 255.0
+    #         if not isinstance(depth_map, np.ndarray):
+    #             depth_map = depth_map.cpu().numpy()
+    #
+    #         depth_map = depth_map.astype(np.uint8)
+    #         depth_map = np.stack([depth_map for _ in range(3)], axis=2)
+    #         render_obs_images.append(depth_map)
+    #
+    # for sensor_name in obs_gray:
+    #     if "rgb" in sensor_name:
+    #         rgb_gray = obs_gray[sensor_name]
+    #         if not isinstance(rgb_gray, np.ndarray):
+    #             rgb_gray = rgb_gray.cpu().numpy()
+    #
+    #         render_obs_images.append(rgb_gray)
+    #
+    #     elif "depth" in sensor_name:
+    #         depth_map = obs_gray[sensor_name].squeeze() * 255.0
+    #         if not isinstance(depth_map, np.ndarray):
+    #             depth_map = depth_map.cpu().numpy()
+    #
+    #         depth_map = depth_map.astype(np.uint8)
+    #         depth_map = np.stack([depth_map for _ in range(3)], axis=2)
+    #         render_obs_images.append(depth_map)
+    #
+    # for sensor_name in obs_processed:
+    #     if "rgb" in sensor_name:
+    #         rgb_processed = obs_processed[sensor_name]
+    #         if not isinstance(rgb_processed, np.ndarray):
+    #             rgb_processed = rgb_processed.cpu().numpy()
+    #
+    #         render_obs_images.append(rgb_processed)
+    #
+    #     elif "depth" in sensor_name:
+    #         depth_map = obs_processed[sensor_name].squeeze() * 255.0
+    #         if not isinstance(depth_map, np.ndarray):
+    #             depth_map = depth_map.cpu().numpy()
+    #
+    #         depth_map = depth_map.astype(np.uint8)
+    #         depth_map = np.stack([depth_map for _ in range(3)], axis=2)
+    #         render_obs_images.append(depth_map)
+    #
+    # for sensor_name in observation:
+    #     if "rgb" in sensor_name:
+    #         rgb = observation[sensor_name]
+    #         if not isinstance(rgb, np.ndarray):
+    #             rgb = rgb.cpu().numpy()
+    #
+    #         render_obs_images.append(rgb)
+    #
+    #     elif "depth" in sensor_name:
+    #         depth_map = observation[sensor_name].squeeze() * 255.0
+    #         if not isinstance(depth_map, np.ndarray):
+    #             depth_map = depth_map.cpu().numpy()
+    #
+    #         depth_map = depth_map.astype(np.uint8)
+    #         depth_map = np.stack([depth_map for _ in range(3)], axis=2)
+    #         render_obs_images.append(depth_map)
+    #
+    # #add image goal if observation has image_goal info
+    # if "imagegoal" in observation:
+    #     rgb = observation["imagegoal"]
+    #     if not isinstance(rgb, np.ndarray):
+    #         rgb = rgb.cpu().numpy()
+    #     print('in image goal')
+    #     render_obs_images.append(rgb)
+    #
+    # assert (
+    #     len(render_obs_images) > 0
+    # ), "Expected at least one visual sensor enabled."
+    #
+    # shapes_are_equal = len(set(x.shape for x in render_obs_images)) == 1
+    # if not shapes_are_equal:
+    #     render_frame = tile_images(render_obs_images)
+    # else:
+    #     render_frame = np.concatenate(render_obs_images, axis=1)
+    #
+    # #draw collision
+    # if "collisions" in info and info["collisions"]["is_collision"]:
+    #     render_frame = draw_collision(render_frame)
+    #
+    # if "top_down_map" in info:
+    #     top_down_map = maps.colorize_draw_agent_and_fit_to_height(
+    #         info["top_down_map"], render_frame.shape[0]
+    #     )
+    #     render_frame = np.concatenate((render_frame, top_down_map), axis=1)
+    #
+    # return render_frame
+# End E2E block
+
+# Start E2E block: Function completely new, maybe not need to be commented
+def observations_to_image_decoder(observation: Dict, info: Dict, obs_gray: Dict, obs_processed: Dict, obs_orig: Dict, obs_recon: Dict) -> np.ndarray:
+    r"""Generate image of single frame from observation and info
+    returned from a single environment step().
+
+    Args:
+        observation: observation returned from an environment step().
+        info: info returned from an environment step().
+
+    Returns:
+        generated image of a single frame.
+    """
+    render_obs_images: List[np.ndarray] = []
+
+    # added
+    for sensor_name in obs_orig:
+        if "rgb" in sensor_name:
+            rgb_orig = obs_orig[sensor_name]
+            if not isinstance(rgb_orig, np.ndarray):
+                rgb_orig = rgb_orig.cpu().numpy()
+
+            render_obs_images.append(rgb_orig)
+
+        elif "depth" in sensor_name:
+            depth_map = obs_orig[sensor_name].squeeze() * 255.0
+            if not isinstance(depth_map, np.ndarray):
+                depth_map = depth_map.cpu().numpy()
+
+            depth_map = depth_map.astype(np.uint8)
+            depth_map = np.stack([depth_map for _ in range(3)], axis=2)
+            render_obs_images.append(depth_map)
+
+    # added
+    for sensor_name in obs_gray:
+        if "rgb" in sensor_name:
+            rgb_gray = obs_gray[sensor_name]
+            if not isinstance(rgb_gray, np.ndarray):
+                rgb_gray = rgb_gray.cpu().numpy()
+
+            render_obs_images.append(rgb_gray)
+
+        elif "depth" in sensor_name:
+            depth_map = obs_gray[sensor_name].squeeze() * 255.0
+            if not isinstance(depth_map, np.ndarray):
+                depth_map = depth_map.cpu().numpy()
+
+            depth_map = depth_map.astype(np.uint8)
+            depth_map = np.stack([depth_map for _ in range(3)], axis=2)
+            render_obs_images.append(depth_map)
+
+    #added
+    for sensor_name in obs_processed:
+        if "rgb" in sensor_name:
+            rgb_processed = obs_processed[sensor_name]
+            if not isinstance(rgb_processed, np.ndarray):
+                rgb_processed = rgb_processed.cpu().numpy()
+
+            render_obs_images.append(rgb_processed)
+
+        elif "depth" in sensor_name:
+            depth_map = obs_processed[sensor_name].squeeze() * 255.0
+            if not isinstance(depth_map, np.ndarray):
+                depth_map = depth_map.cpu().numpy()
+
+            depth_map = depth_map.astype(np.uint8)
+            depth_map = np.stack([depth_map for _ in range(3)], axis=2)
+            render_obs_images.append(depth_map)
+
+    # existing
+    for sensor_name in observation:
+        if "rgb" in sensor_name:
+            rgb = observation[sensor_name]
+            if not isinstance(rgb, np.ndarray):
+                rgb = rgb.cpu().numpy()
+
+            render_obs_images.append(rgb)
 
 
+        elif "depth" in sensor_name:
+            depth_map = observation[sensor_name].squeeze() * 255.0
+            if not isinstance(depth_map, np.ndarray):
+                depth_map = depth_map.cpu().numpy()
+
+            depth_map = depth_map.astype(np.uint8)
+            depth_map = np.stack([depth_map for _ in range(3)], axis=2)
+            render_obs_images.append(depth_map)
+
+    if obs_recon is not None:
+        print('notnone')
+        for sensor_name in obs_recon:
+            if "rgb" in sensor_name:
+                rgb_recon = obs_recon[sensor_name]
+                if not isinstance(rgb_recon, np.ndarray):
+                    rgb_recon = rgb_recon.cpu().numpy()
+
+                render_obs_images.append(rgb_recon)
+
+
+            elif "depth" in sensor_name:
+                depth_map = observation[sensor_name].squeeze() * 255.0
+                if not isinstance(depth_map, np.ndarray):
+                    depth_map = depth_map.cpu().numpy()
+
+                depth_map = depth_map.astype(np.uint8)
+                depth_map = np.stack([depth_map for _ in range(3)], axis=2)
+                render_obs_images.append(depth_map)
+
+        print('shapes', rgb_orig.shape, rgb_gray.shape, rgb_processed.shape,
+              rgb.shape, rgb_recon.shape)
+    print('shapes', rgb_orig.shape, rgb_gray.shape, rgb_processed.shape,
+          rgb.shape)
+
+    # add image goal if observation has image_goal info
+    if "imagegoal" in observation:
+        rgb = observation["imagegoal"]
+        if not isinstance(rgb, np.ndarray):
+            rgb = rgb.cpu().numpy()
+
+        render_obs_images.append(rgb)
+
+    assert (
+        len(render_obs_images) > 0
+    ), "Expected at least one visual sensor enabled."
+
+    shapes_are_equal = len(set(x.shape for x in render_obs_images)) == 1
+    if not shapes_are_equal:
+        render_frame = tile_images(render_obs_images)
+    else:
+        render_frame = np.concatenate(render_obs_images, axis=1)
+
+    # draw collision
+    if "collisions" in info and info["collisions"]["is_collision"]:
+        render_frame = draw_collision(render_frame)
+
+    if "top_down_map" in info:
+        top_down_map = maps.colorize_draw_agent_and_fit_to_height(
+            info["top_down_map"], render_frame.shape[0]
+        )
+        render_frame = np.concatenate((render_frame, top_down_map), axis=1)
+
+    return render_frame
+
+# def append_text_to_image(image: np.ndarray, text: str):  # E2E change
 def append_text_underneath_image(image: np.ndarray, text: str):
     """Appends text underneath an image of size (height, width, channels).
 

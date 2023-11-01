@@ -26,6 +26,12 @@ import numbers
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple, Union
 
+# Start E2E block
+import matplotlib
+from matplotlib import pyplot as plt
+from PIL import Image
+# End E2E block
+
 import numpy as np
 import torch
 from gym import spaces
@@ -1233,6 +1239,22 @@ def apply_obs_transforms_obs_space(
         obs_space = obs_transform.transform_observation_space(obs_space)
     return obs_space
 
+
+def apply_obs_transforms_batch_video(
+    batch: Dict[str, torch.Tensor],
+    obs_transforms: Iterable[ObservationTransformer]
+) -> Tuple[Dict[str, torch.Tensor], List[Dict[str, torch.Tensor]]]:
+    batch_all=[]
+    for obs_transform in obs_transforms:
+        batch = obs_transform(batch)
+        batch_all.append(copy.deepcopy(batch))
+        #added
+        if batch['rgb'].shape[-1]==1:
+            plt.imsave('/home/burkuc/data/habitatai/images/img_'+str(obs_transform)[0:6]+'.png', batch['rgb'][0,:,:,0].detach().cpu().numpy(), cmap=plt.cm.gray)
+        else:
+            plt.imsave('/home/burkuc/data/habitatai/images/img_'+str(obs_transform)[0:6]+'.png', batch['rgb'][0,:,:,:].detach().cpu().numpy(), cmap=plt.cm.gray)
+
+    return batch, batch_all
 
 @baseline_registry.register_obs_transformer()
 class AddVirtualKeys(ObservationTransformer):

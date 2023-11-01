@@ -25,6 +25,9 @@ from habitat_baselines.rl.ppo.policy import NetPolicy, Policy
 from habitat_baselines.rl.ppo.ppo import PPO
 from habitat_baselines.rl.ppo.updater import Updater
 
+# Added E2E line
+from phosphenes import E2E_Decoder
+
 if TYPE_CHECKING:
     from omegaconf import DictConfig
 
@@ -143,6 +146,18 @@ class SingleAgentAccessMgr(AgentAccessMgr):
             self._env_spec.action_space,
             orig_action_space=self._env_spec.orig_action_space,
         )
+
+        # Start E2E block
+        if 'Encoder' in str(self.obs_transforms[1]):
+            self.decoder = E2E_Decoder()  #Initialization in old version here
+            self.decoder.to(self.device)
+            # self.agent.actor_critic.net.decoder.to(self.device)
+            # self.actor_critic.net.decoder.to(self.device)
+
+            self.obs_transforms[1].model.to(self.device)
+            self.obs_transforms[2].gaussian.to(self.device)
+        # End E2E block
+
         if (
             self._config.habitat_baselines.rl.ddppo.pretrained_encoder
             or self._config.habitat_baselines.rl.ddppo.pretrained
@@ -152,13 +167,38 @@ class SingleAgentAccessMgr(AgentAccessMgr):
                 map_location="cpu",
             )
 
+            # Start E2E block
+            if 'Encoder' in str(self.obs_transforms[1]):
+                pretrained_agent_with_decoder = self.load_checkpoint(
+                    self.checkpoint_path_phosphene, map_location="cpu")
+                # torch.load(self.checkpoint_path) #FIX
+                print('added decoder checkpoint')
+            # End E2E block
+
         if self._config.habitat_baselines.rl.ddppo.pretrained:
+            # Start E2E block
+            print('pretrainedstatedict')
+            for k, v in pretrained_state["state_dict"].items():
+                print(k, v.shape)
+            print('allnet')
+            print(self.actor_critic.net)
+            # End E2E block
+
             actor_critic.load_state_dict(
                 {  # type: ignore
                     k[len("actor_critic.") :]: v
                     for k, v in pretrained_state["state_dict"].items()
                 }
             )
+
+            # Start E2E block
+            if 'Encoder' in str(self.obs_transforms[1]):
+                # self.actor_critic.net.decoder.load_state_dict(pretrained_agent_with_decoder["state_dict_decoder"])
+                self.decoder.load_state_dict(
+                    pretrained_agent_with_decoder["state_dict_decoder"])
+                print('loaded decoder checkpoint')
+            # End E2E block
+
         elif self._config.habitat_baselines.rl.ddppo.pretrained_encoder:
             prefix = "actor_critic.net.visual_encoder."
             actor_critic.net.visual_encoder.load_state_dict(

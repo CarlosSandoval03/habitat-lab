@@ -248,12 +248,54 @@ class NetPolicy(nn.Module, Policy):
             rnn_hidden_states=rnn_hidden_states,
         )
 
+        # Start E2E block (function added)
+    def act_e2e(
+        self,
+        obs_transforms,
+        observations,
+        rnn_hidden_states,
+        prev_actions,
+        masks,
+        decoder,
+        act,
+        deterministic=False,
+    ):
+        features, rnn_hidden_states, _, _, _, _ = self.net(
+            obs_transforms, observations, rnn_hidden_states, prev_actions,
+            masks, decoder, act
+            # obs_transforms, observations, rnn_hidden_states, prev_actions, masks, act
+        )
+        distribution = self.action_distribution(features)
+        value = self.critic(features)
+
+        if deterministic:
+            if self.action_distribution_type == "categorical":
+                action = distribution.mode()
+            elif self.action_distribution_type == "gaussian":
+                action = distribution.mean
+        else:
+            action = distribution.sample()
+
+        action_log_probs = distribution.log_probs(action)
+
+        return value, action, action_log_probs, rnn_hidden_states
+    # End E2E block
+
     @g_timer.avg_time("net_policy.get_value", level=1)
     def get_value(self, observations, rnn_hidden_states, prev_actions, masks):
         features, _, _ = self.net(
             observations, rnn_hidden_states, prev_actions, masks
         )
         return self.critic(features)
+
+    # Start E2E block (function added)
+    def get_value_e2e(self, obs_transforms, observations, rnn_hidden_states, prev_actions, masks, decoder, act):
+        features, _ , _ ,_, _, _ = self.net(
+            obs_transforms, observations, rnn_hidden_states, prev_actions, masks, decoder, act
+            # obs_transforms, observations, rnn_hidden_states, prev_actions, masks, act
+        )
+        return self.critic(features)
+    # End E2E block
 
     def evaluate_actions(
         self,
@@ -297,6 +339,25 @@ class NetPolicy(nn.Module, Policy):
             rnn_hidden_states,
             aux_loss_res,
         )
+
+    # Start E2E block (complete function)
+    def evaluate_actions_e2e(  # this is the actual forward pass
+        self, obs_transforms, observations_orig, rnn_hidden_states,
+        prev_actions, masks, action, decoder
+    ):
+        features, rnn_hidden_states, observations_gray, stimulations, phosphenes, reconstructions = self.net.forward(
+            obs_transforms, observations_orig, rnn_hidden_states,
+            prev_actions, masks, decoder, act=False,
+        )
+
+        distribution = self.action_distribution(features)
+        value = self.critic(features)
+
+        action_log_probs = distribution.log_probs(action)
+        distribution_entropy = distribution.entropy()
+
+        return value, action_log_probs, distribution_entropy, rnn_hidden_states, observations_gray, stimulations, phosphenes, reconstructions
+    # End E2E block
 
     def _get_policy_components(self) -> List[nn.Module]:
         return [self.net, self.critic, self.action_distribution]
