@@ -647,7 +647,7 @@ class PPOTrainer(BaseRLTrainer):
                     step_batch["prev_actions"],
                     step_batch["masks"],
                     self.decoder,
-                    act=True
+                    act=True,
                 )
             else:
                 next_value = self._agent.actor_critic.get_value(

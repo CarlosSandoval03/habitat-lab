@@ -361,7 +361,7 @@ class NetPolicy(nn.Module, Policy):
     ):
         features, rnn_hidden_states, aux_loss_state, observations_gray, stimulations, phosphenes, reconstructions = self.net.forward(
             obs_transforms, observations_orig, rnn_hidden_states,
-            prev_actions, masks, decoder, act=False,
+            prev_actions, masks, decoder, act=False, rnn_build_seq_info=rnn_build_seq_info
         )
 
         distribution = self.action_distribution(features)

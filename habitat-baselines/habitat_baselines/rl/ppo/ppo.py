@@ -406,11 +406,11 @@ class PPO(nn.Module, Updater):
             action_log_probs,
             dist_entropy,
             _,
+            aux_loss_res,
             observations_gray,
             update_stimulations,
             update_phosphenes,
-            update_reconstructions,
-            aux_loss_res
+            update_reconstructions
         ) = self._evaluate_actions_e2e(
             # this is the where the forward pass happens
             obs_transforms,
