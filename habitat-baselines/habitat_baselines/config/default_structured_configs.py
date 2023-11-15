@@ -133,7 +133,7 @@ cs.store(
     node=EdgeFilterConfig,
 )
 
-
+@dataclass
 class PhospheneVisionConfig(ObsTransformConfig):
     type: str = "Phosphenes"
     size: Tuple[int, ...] = (256, 256)
@@ -154,7 +154,7 @@ cs.store(
     node=PhospheneVisionConfig,
 )
 
-
+@dataclass
 class PhospheneVisionRealisticConfig(ObsTransformConfig):
     type: str = "PhosphenesRealistic"
     resolution: int = 32
@@ -210,6 +210,60 @@ cs.store(
     group="habitat_baselines/rl/policy/obs_transforms",
     name="black_screen_base",
     node=BlackScreenConfig,
+)
+
+@dataclass
+class EncoderConfig(ObsTransformConfig):
+    type: str = "Encoder"
+    channels_last: bool = True #Comment??
+    trans_keys: Tuple[str, ...] = ( #Comment??
+        "rgb",
+        "depth",
+        "semantic",
+    )
+
+
+cs.store(
+    package="habitat_baselines.rl.policy.obs_transforms.Encoder",
+    group="habitat_baselines/rl/policy/obs_transforms",
+    name="Encoder_base",
+    node=EncoderConfig,
+)
+
+@dataclass
+class E2E_DecoderConfig(ObsTransformConfig):
+    type: str = "E2E_Decoder"
+    channels_last: bool = True #Comment??
+    trans_keys: Tuple[str, ...] = ( #Comment??
+        "rgb",
+        "depth",
+        "semantic",
+    )
+
+
+cs.store(
+    package="habitat_baselines.rl.policy.obs_transforms.E2E_Decoder",
+    group="habitat_baselines/rl/policy/obs_transforms",
+    name="E2E_Decoder_base",
+    node=E2E_DecoderConfig,
+)
+
+@dataclass
+class E2E_PhospheneSimulatorConfig(ObsTransformConfig):
+    type: str = "E2E_PhospheneSimulator"
+    channels_last: bool = True #Comment??
+    trans_keys: Tuple[str, ...] = ( #Comment??
+        "rgb",
+        "depth",
+        "semantic",
+    )
+
+
+cs.store(
+    package="habitat_baselines.rl.policy.obs_transforms.E2E_PhospheneSimulator",
+    group="habitat_baselines/rl/policy/obs_transforms",
+    name="E2E_PhospheneSimulator_base",
+    node=E2E_PhospheneSimulatorConfig,
 )
 # END OF MY CODE
 

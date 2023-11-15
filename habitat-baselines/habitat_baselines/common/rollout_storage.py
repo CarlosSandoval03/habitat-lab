@@ -196,6 +196,7 @@ class RolloutStorage(Storage):
         rewards=None,
         next_masks=None,
         buffer_index: int = 0,
+        **kwargs,
     ):
         if not self.is_double_buffered:
             assert buffer_index == 0

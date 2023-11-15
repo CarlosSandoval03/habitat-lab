@@ -44,6 +44,7 @@ from habitat_baselines.common.base_trainer import BaseRLTrainer
 from habitat_baselines.common.baseline_registry import baseline_registry
 from habitat_baselines.common.construct_vector_env import construct_envs
 from habitat_baselines.common.env_spec import EnvironmentSpec
+from habitat_baselines.rl.ver.ver_rollout_storage import VERRolloutStorage
 from habitat_baselines.common.obs_transformers import (
     apply_obs_transforms_batch,
     apply_obs_transforms_obs_space,
@@ -133,6 +134,18 @@ class PPOTrainer(BaseRLTrainer):
 
     def _create_obs_transforms(self):
         self.obs_transforms = get_active_obs_transforms(self.config)
+
+        # Start E2E block
+        if 'Encoder' in str(self.obs_transforms[1]):
+            obs_trans_cls = baseline_registry.get_obs_transformer(
+                "E2E_Decoder")
+            if obs_trans_cls is None:
+                raise ValueError(
+                    f"Unkown ObservationTransform with name E2E_Decoder."
+                )
+            self.decoder = obs_trans_cls.from_config({"type": "E2E_Decoder"})
+        # End E2E block
+
         self._env_spec.observation_space = apply_obs_transforms_obs_space(
             self._env_spec.observation_space, self.obs_transforms
         )
@@ -261,18 +274,23 @@ class PPOTrainer(BaseRLTrainer):
             os.makedirs(self.config.habitat_baselines.checkpoint_folder)
 
         logger.add_filehandler(self.config.habitat_baselines.log_file)
+        self._agent = self._create_agent(resume_state)
 
         # Start E2E block
-            # This is so when _create_agent is called, the E2E stuff is part of
+        # This is so when _create_agent is called, the E2E stuff is part of
         # the resume state dict. It is an attempt to immitate the old functions
         # of DDPPO or PPO to initialize providing all the parameters one by one,
         # just like it is in Burcu's version line 267 onwards
-        if 'Encoder' in str(self.obs_transforms[1]):
-            resume_state["decoder"] = E2E_Decoder()
-            resume_state["obs_transforms"] = self.obs_transforms
+
+        # Update, I don't think it is necessary, I think it is the problem I
+        # already solved in PPO init related to the existance of obs_transforms
+        # and decoder. But still, I'll keep it for now as a comment.
+
+        # if 'Encoder' in str(self.obs_transforms[1]):
+        #     resume_state["decoder"] = E2E_Decoder()
+        #     resume_state["obs_transforms"] = self.obs_transforms
         # End E2E block
 
-        self._agent = self._create_agent(resume_state)
         if self._is_distributed:
             self._agent.updater.init_distributed(find_unused_params=False)  # type: ignore
         self._agent.post_init()
@@ -283,21 +301,11 @@ class PPOTrainer(BaseRLTrainer):
         self._ppo_cfg = self.config.habitat_baselines.rl.ppo
 
         # Start E2E block
-        # I am not sure what this is doing. It was included in the previous
-        # version of habitat but not in the current one.
-        # I don't think it should be used anymore.
-        # self.rollouts = RolloutStorage(
-        #     self.obs_transforms,  # mainadd
-        #     ppo_cfg.num_steps,
-        #     self.envs.num_envs,
-        #     obs_space,
-        #     self.policy_action_space,
-        #     ppo_cfg.hidden_size,
-        #     num_recurrent_layers=self.actor_critic.net.num_recurrent_layers,
-        #     is_double_buffered=ppo_cfg.use_double_buffered_sampler,
-        #     action_shape=action_shape,
-        #     discrete_actions=discrete_actions,
-        # )
+        # This RolloutStorage function is not used anymore because the function
+        # is already integrated in single_agent_access_mgr.py and in
+        # rollout_storage.py, the appropriate functions are called some lines
+        # before here in self._agent.post_init()
+        # self.rollouts = RolloutStorage(...)
         # self.rollouts.to(self.device)
         # End E2E block
 
@@ -669,7 +677,7 @@ class PPOTrainer(BaseRLTrainer):
         # Start E2E block
         if 'Encoder' in str(self.obs_transforms[1]):
             losses = self._agent.updater.update_e2e(
-                self.rollouts, self.obs_transforms, self.decoder
+                self._agent.rollouts, self.obs_transforms, self.decoder
             )
         else:
             losses = self._agent.updater.update(self._agent.rollouts)

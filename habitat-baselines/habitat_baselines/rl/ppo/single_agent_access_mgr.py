@@ -17,6 +17,9 @@ from habitat_baselines.rl.ddppo.policy import (  # noqa: F401.
     PointNavResNetNet,
     PointNavResNetPolicy,
 )
+from habitat_baselines.common.obs_transformers import (
+    get_active_obs_transforms
+)
 from habitat_baselines.rl.hrl.hierarchical_policy import (  # noqa: F401.
     HierarchicalPolicy,
 )
@@ -26,7 +29,11 @@ from habitat_baselines.rl.ppo.ppo import PPO
 from habitat_baselines.rl.ppo.updater import Updater
 
 # Added E2E line
+import sys
+sys.path.append('/scratch/big/home/carsan/Internship/PyCharm_projects/habitat-phosphenes')
 from phosphenes import E2E_Decoder
+from pathlib import Path
+import phosphenes
 
 if TYPE_CHECKING:
     from omegaconf import DictConfig
@@ -148,14 +155,16 @@ class SingleAgentAccessMgr(AgentAccessMgr):
         )
 
         # Start E2E block
+        self.obs_transforms = get_active_obs_transforms(self._config)
+
         if 'Encoder' in str(self.obs_transforms[1]):
             self.decoder = E2E_Decoder()  #Initialization in old version here
-            self.decoder.to(self.device)
+            self.decoder.to(self._device)
             # self.agent.actor_critic.net.decoder.to(self.device)
             # self.actor_critic.net.decoder.to(self.device)
 
-            self.obs_transforms[1].model.to(self.device)
-            self.obs_transforms[2].gaussian.to(self.device)
+            self.obs_transforms[1].model.to(self._device)
+            self.obs_transforms[2].gaussian.to(self._device)
         # End E2E block
 
         if (
@@ -320,9 +329,15 @@ def default_create_rollouts(
         env_spec.observation_space, actor_critic, config
     )
     ppo_cfg = config.habitat_baselines.rl.ppo
+
+    # Start E2E block
+    obs_transforms = get_active_obs_transforms(config)
+    # End E2E block
+
     rollouts = baseline_registry.get_storage(
         config.habitat_baselines.rollout_storage_name
-    )(
+    )( # Add here obs_transforms, it is what it is missing according to the init function of RolloutStorage
+        obs_transforms, # Add E2E
         ppo_cfg.num_steps,
         num_envs,
         obs_space,
