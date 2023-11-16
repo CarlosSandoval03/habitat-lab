@@ -985,7 +985,7 @@ class PPOTrainer(BaseRLTrainer):
                                         value.data.cpu(),
                                         self.num_updates_done)
 
-                        for tag, value in self.actor_critic.net.named_parameters():
+                        for tag, value in self._agent.actor_critic.net.named_parameters():
                             # print('tag', tag)
                             if value.grad is not None:
                                 # print('grad tag', tag)
@@ -997,10 +997,9 @@ class PPOTrainer(BaseRLTrainer):
                                                      self.num_updates_done)
 
                         for tag, value in self.decoder.named_parameters():
-                            print('DECODER tag', tag, 'grad', value.grad.min(),
-                                  value.grad.max())
-
                             if value.grad is not None:
+                                if value.grad.min() is not None:
+                                    print('DECODER tag', tag, 'grad', value.grad.min(), value.grad.max())
                                 # print('grad tag ', tag)
                                 writer.add_histogram(
                                     f"{'decoder'}/grads/{tag}",

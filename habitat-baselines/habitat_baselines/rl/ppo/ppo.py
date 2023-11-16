@@ -476,14 +476,26 @@ class PPO(nn.Module, Updater):
             - dist_entropy * self.entropy_coef
         )
 
+        observations_gray = observations_gray.to(torch.float32)
+        update_stimulations = update_stimulations.to(torch.float32)
+        update_phosphenes = update_phosphenes.to(torch.float32)
+        # update_reconstructions = update_reconstructions.to(torch.float32)
+        # Not needed, it is a dict, but rgb key inside is already a float32
+
         stim_loss, recon_loss, spars_loss = loss_function(
             image=observations_gray,
             stimulation=update_stimulations,
             phosphenes=update_phosphenes,
             reconstruction=update_reconstructions)
 
+        stim_loss = stim_loss.to(torch.float32)
+        recon_loss = recon_loss.to(torch.float32)
+        spars_loss = spars_loss.to(torch.float32)
+
         total_loss = weight_loss_ppo * ppo_loss + (
                 1 - weight_loss_ppo) * torch.mean(stim_loss)
+        total_loss = total_loss.to(torch.float32)
+
         self.before_backward(total_loss)
         torch.use_deterministic_algorithms(False)
         total_loss.backward()
