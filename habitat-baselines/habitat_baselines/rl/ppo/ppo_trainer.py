@@ -50,7 +50,6 @@ from habitat_baselines.common.obs_transformers import (
     apply_obs_transforms_obs_space,
     get_active_obs_transforms,
     apply_obs_transforms_batch_video,
-    # apply_obs_transforms_batch_video_decoder
 )
 from habitat_baselines.common.rollout_storage import RolloutStorage
 from habitat_baselines.common.tensorboard_utils import (
@@ -293,33 +292,26 @@ class PPOTrainer(BaseRLTrainer):
 
         if self._is_distributed:
             self._agent.updater.init_distributed(find_unused_params=False)  # type: ignore
-        self._agent.post_init()
+        self._agent.post_init()  # Rollouts originally created inside here
 
         self._is_static_encoder = (
             not self.config.habitat_baselines.rl.ddppo.train_encoder
         )
         self._ppo_cfg = self.config.habitat_baselines.rl.ppo
 
-        # Start E2E block
-        # This RolloutStorage function is not used anymore because the function
-        # is already integrated in single_agent_access_mgr.py and in
-        # rollout_storage.py, the appropriate functions are called some lines
-        # before here in self._agent.post_init()
-        # self.rollouts = RolloutStorage(...)
-        # self.rollouts.to(self.device)
-        # End E2E block
-
         observations = self.envs.reset()
         batch = batch_obs(observations, device=self.device)
 
         # Changed for E2E block ("with" statement)
-        with inference_mode():
-            batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # type: ignore
+        # with torch.no_grad():
+        #     batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # type: ignore
+
+        batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # type: ignore
 
         if self._is_static_encoder:
             assert isinstance(self._agent.actor_critic, NetPolicy)
             self._encoder = self._agent.actor_critic.net.visual_encoder
-            with inference_mode():
+            with torch.no_grad():
                 batch[
                     PointNavResNetNet.PRETRAINED_VISUAL_FEATURES_KEY
                 ] = self._encoder(batch)
@@ -447,7 +439,7 @@ class PPOTrainer(BaseRLTrainer):
         t_sample_action = time.time()
 
         # Sample actions
-        with inference_mode():
+        with torch.no_grad():
             step_batch = self._agent.rollouts.get_current_step(
                 env_slice, buffer_index
             )
@@ -553,9 +545,10 @@ class PPOTrainer(BaseRLTrainer):
         batch = batch_obs(observations, device=self.device)
         # Start E2E block
         batch_orig = copy.deepcopy(batch)
-        with inference_mode():
-            batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # This line remained the same. I was out of the "with" block
+        # with torch.no_grad():
+        #     batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # This line remained the same. I was out of the "with" block
         # End E2E block
+        batch = apply_obs_transforms_batch(batch, self.obs_transforms) # Original (No E2E)
 
         rewards = torch.tensor(
             rewards_l,
@@ -590,7 +583,7 @@ class PPOTrainer(BaseRLTrainer):
         self.current_episode_reward[env_slice].masked_fill_(done_masks, 0.0)
 
         if self._is_static_encoder:
-            with inference_mode():
+            with torch.no_grad():
                 batch[
                     PointNavResNetNet.PRETRAINED_VISUAL_FEATURES_KEY
                 ] = self._encoder(batch)
@@ -635,7 +628,7 @@ class PPOTrainer(BaseRLTrainer):
     def _update_agent(self):
         t_update_model = time.time()
 
-        with inference_mode():
+        with torch.no_grad():
             step_batch = self._agent.rollouts.get_last_step()
 
             # Start E2E block
@@ -1114,8 +1107,8 @@ class PPOTrainer(BaseRLTrainer):
         batch = batch_obs(observations, device=self.device)
         # Start E2E block
         # batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # type: ignore
-        with inference_mode():
-            batch, batch_all = apply_obs_transforms_batch_video(batch, self.obs_transforms)
+        with torch.no_grad():
+            batch, _ = apply_obs_transforms_batch_video(batch, self.obs_transforms)
         # End E2E block
 
         current_episode_reward = torch.zeros(
@@ -1192,7 +1185,7 @@ class PPOTrainer(BaseRLTrainer):
 
             # Start E2E block
             if 'Encoder' in str(self.obs_transforms[1]):
-                with inference_mode():
+                with torch.no_grad():
                     action_data = self._agent.actor_critic.act_e2e(
                         self.obs_transforms,
                         batch,
@@ -1218,7 +1211,7 @@ class PPOTrainer(BaseRLTrainer):
                                 ] = action_data.rnn_hidden_states[i]
                                 prev_actions[i].copy_(action_data.actions[i])  # type: ignore
             else:
-                with inference_mode():
+                with torch.no_grad():
                     action_data = self._agent.actor_critic.act(
                         batch,
                         test_recurrent_hidden_states,
@@ -1275,9 +1268,9 @@ class PPOTrainer(BaseRLTrainer):
             )
 
             # Start E2E block
-            batch_orig = copy.deepcopy(batch)
-            with inference_mode():
-                batch, batch_all = apply_obs_transforms_batch_video(batch, self.obs_transforms)  # type: ignore
+            with torch.no_grad():
+                batch, _ = apply_obs_transforms_batch_video(batch, self.obs_transforms)  # type: ignore
+            # End E2E block
 
             not_done_masks = torch.tensor(
                 [[not done] for done in dones],

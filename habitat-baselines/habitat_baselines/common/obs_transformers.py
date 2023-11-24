@@ -1250,9 +1250,9 @@ def apply_obs_transforms_batch_video(
         batch_all.append(copy.deepcopy(batch))
         #added
         if batch['rgb'].shape[-1]==1:
-            plt.imsave('/home/burkuc/data/habitatai/images/img_'+str(obs_transform)[0:6]+'.png', batch['rgb'][0,:,:,0].detach().cpu().numpy(), cmap=plt.cm.gray)
+            plt.imsave('/home/carsan/Data/habitatai/images/img_'+str(obs_transform)[0:6]+'.png', batch['rgb'][0,:,:,0].detach().cpu().numpy(), cmap=plt.cm.gray)
         else:
-            plt.imsave('/home/burkuc/data/habitatai/images/img_'+str(obs_transform)[0:6]+'.png', batch['rgb'][0,:,:,:].detach().cpu().numpy(), cmap=plt.cm.gray)
+            plt.imsave('/home/carsan/Data/habitatai/images/img_'+str(obs_transform)[0:6]+'.png', batch['rgb'][0,:,:,:].detach().cpu().numpy(), cmap=plt.cm.gray)
 
     return batch, batch_all
 

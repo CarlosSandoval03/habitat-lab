@@ -165,18 +165,19 @@ class PPO(nn.Module, Updater):
         # E2E block
         parameter_list = []
 
-        for transform in obs_transforms:
+        # In general, all the parameters have required_grad set to true, at least for Encoder, actor_critic, and decoder.
+        for transform in obs_transforms: # Around 21 parameters tracked (Simulator does not have parameters tracked)
             for p in transform.parameters():
                 if hasattr(p, "requires_grad") and p.requires_grad:
                     print(str(transform)[:6])
                     parameter_list.append(p)
 
-        for p in actor_critic.parameters():
+        for p in actor_critic.parameters(): # Around 74 parameters tracked (95 together with the transforms)
             if hasattr(p, "requires_grad") and p.requires_grad:
                 print('actor')
                 parameter_list.append(p)
 
-        for p in decoder.parameters():
+        for p in decoder.parameters(): # 22 parameters
             if hasattr(p, "requires_grad") and p.requires_grad:
                 print('decoder')
                 parameter_list.append(p)
@@ -331,9 +332,9 @@ class PPO(nn.Module, Updater):
         total_loss = torch.stack(all_losses).sum()
 
         total_loss = self.before_backward(total_loss)
-        torch.use_deterministic_algorithms(False)
+        # torch.use_deterministic_algorithms(False)
         total_loss.backward()
-        torch.use_deterministic_algorithms(True)
+        # torch.use_deterministic_algorithms(True)
         self.after_backward(total_loss)
 
         grad_norm = self.before_step()
@@ -497,9 +498,9 @@ class PPO(nn.Module, Updater):
         total_loss = total_loss.to(torch.float32)
 
         self.before_backward(total_loss)
-        torch.use_deterministic_algorithms(False)
+        # torch.use_deterministic_algorithms(False)
         total_loss.backward()
-        torch.use_deterministic_algorithms(True)
+        # torch.use_deterministic_algorithms(True)
         self.after_backward(total_loss)
 
         grad_norm = self.before_step()
