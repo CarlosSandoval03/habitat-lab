@@ -121,19 +121,6 @@ class InferenceWorkerProcess(ProcessBase):
         assert self.max_reqs >= self.min_reqs
 
         self.min_wait_time = 0.01
-        self.obs_transforms = get_active_obs_transforms(self.config)
-
-        # Start E2E block
-        if 'Encoder' in str(self.obs_transforms[1]):
-            obs_trans_cls = baseline_registry.get_obs_transformer(
-                "E2E_Decoder")
-            if obs_trans_cls is None:
-                raise ValueError(
-                    f"Unkown ObservationTransform with name E2E_Decoder."
-                )
-            self.decoder =  obs_trans_cls.from_config({"type": "E2E_Decoder"})
-        # End E2E block
-
         self._variable_experience = (
             self.config.habitat_baselines.rl.ver.variable_experience
         )

@@ -132,6 +132,10 @@ class PPOTrainer(BaseRLTrainer):
         return t.to(device=orig_device)
 
     def _create_obs_transforms(self):
+        # I need to create the transformations here because if not then when
+        # initiating training the transforms and decoder does not exist,
+        # I also need to move it to cuda (device) so I don't get errors in
+        # the phosphenes
         self.obs_transforms = get_active_obs_transforms(self.config)
 
         # Start E2E block
@@ -143,6 +147,10 @@ class PPOTrainer(BaseRLTrainer):
                     f"Unkown ObservationTransform with name E2E_Decoder."
                 )
             self.decoder = obs_trans_cls.from_config({"type": "E2E_Decoder"})
+
+            self.decoder.to(self.device)
+            self.obs_transforms[1].model.to(self.device)
+            self.obs_transforms[2].gaussian.to(self.device)
         # End E2E block
 
         self._env_spec.observation_space = apply_obs_transforms_obs_space(
@@ -154,7 +162,6 @@ class PPOTrainer(BaseRLTrainer):
         Sets up the AgentAccessMgr. You still must call `agent.post_init` after
         this call. This only constructs the object.
         """
-
         self._create_obs_transforms()
         return baseline_registry.get_agent_access_mgr(
             self.config.habitat_baselines.rl.agent.type
@@ -166,6 +173,8 @@ class PPOTrainer(BaseRLTrainer):
             resume_state=resume_state,
             num_envs=self.envs.num_envs,
             percent_done_fn=self.percent_done,
+            obs_transforms=self.obs_transforms, # Added E2E (for only 1 instance)
+            decoder=self.decoder, # Added E2E (for only 1 instance)
             **kwargs,
         )
 
@@ -275,21 +284,6 @@ class PPOTrainer(BaseRLTrainer):
         logger.add_filehandler(self.config.habitat_baselines.log_file)
         self._agent = self._create_agent(resume_state)
 
-        # Start E2E block
-        # This is so when _create_agent is called, the E2E stuff is part of
-        # the resume state dict. It is an attempt to immitate the old functions
-        # of DDPPO or PPO to initialize providing all the parameters one by one,
-        # just like it is in Burcu's version line 267 onwards
-
-        # Update, I don't think it is necessary, I think it is the problem I
-        # already solved in PPO init related to the existance of obs_transforms
-        # and decoder. But still, I'll keep it for now as a comment.
-
-        # if 'Encoder' in str(self.obs_transforms[1]):
-        #     resume_state["decoder"] = E2E_Decoder()
-        #     resume_state["obs_transforms"] = self.obs_transforms
-        # End E2E block
-
         if self._is_distributed:
             self._agent.updater.init_distributed(find_unused_params=False)  # type: ignore
         self._agent.post_init()  # Rollouts originally created inside here
@@ -303,10 +297,10 @@ class PPOTrainer(BaseRLTrainer):
         batch = batch_obs(observations, device=self.device)
 
         # Changed for E2E block ("with" statement)
-        # with torch.no_grad():
-        #     batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # type: ignore
+        with torch.no_grad():
+            batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # type: ignore
 
-        batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # type: ignore
+        # batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # type: ignore
 
         if self._is_static_encoder:
             assert isinstance(self._agent.actor_critic, NetPolicy)
@@ -545,10 +539,10 @@ class PPOTrainer(BaseRLTrainer):
         batch = batch_obs(observations, device=self.device)
         # Start E2E block
         batch_orig = copy.deepcopy(batch)
-        # with torch.no_grad():
-        #     batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # This line remained the same. I was out of the "with" block
+        with torch.no_grad():
+            batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # This line remained the same. I was out of the "with" block
         # End E2E block
-        batch = apply_obs_transforms_batch(batch, self.obs_transforms) # Original (No E2E)
+        # batch = apply_obs_transforms_batch(batch, self.obs_transforms) # Original (No E2E)
 
         rewards = torch.tensor(
             rewards_l,
@@ -670,7 +664,7 @@ class PPOTrainer(BaseRLTrainer):
         # Start E2E block
         if 'Encoder' in str(self.obs_transforms[1]):
             losses = self._agent.updater.update_e2e(
-                self._agent.rollouts, self.obs_transforms, self.decoder
+                self._agent.rollouts
             )
         else:
             losses = self._agent.updater.update(self._agent.rollouts)
@@ -933,7 +927,7 @@ class PPOTrainer(BaseRLTrainer):
                 if self._is_distributed:
                     self.num_rollouts_done_store.add("num_done", 1)
 
-                losses = self._update_agent()
+                losses = self._update_agent() # From here it goes to the update_e2e functions in ppo.py
 
                 self.num_updates_done += 1
                 losses = self._coalesce_post_step(
@@ -978,7 +972,7 @@ class PPOTrainer(BaseRLTrainer):
                                         value.data.cpu(),
                                         self.num_updates_done)
 
-                        for tag, value in self._agent.actor_critic.net.named_parameters():
+                        for tag, value in self._agent.actor_critic.named_parameters():
                             # print('tag', tag)
                             if value.grad is not None:
                                 # print('grad tag', tag)
@@ -1025,12 +1019,18 @@ class PPOTrainer(BaseRLTrainer):
         Returns:
             None
         """
-        # Start E2E block
         checkpoint_path_phos = ""
-        for i in range(len(checkpoint_path.split("_")) - 1):
-            checkpoint_path_phos += checkpoint_path.split("_")[i] + "_"
-        checkpoint_path_phos += "phos." + checkpoint_path.split(".")[
-            -2] + ".pth"
+        aux_directory, aux_filename = os.path.split(checkpoint_path)
+        if "_phos" not in aux_filename:
+            first_dot_index = aux_filename.find('.')
+            if first_dot_index != -1:
+                checkpoint_path_phos = aux_directory + "/" + aux_filename[:first_dot_index] + "_phos" + aux_filename[first_dot_index:]
+            else:
+                checkpoint_path_phos = checkpoint_path
+            print('checkpoint_path_phos', checkpoint_path_phos)
+        else:
+            checkpoint_path_phos = checkpoint_path
+
         print('checkpoint_path_phos', checkpoint_path_phos)
 
         self.checkpoint_path = checkpoint_path
@@ -1108,7 +1108,7 @@ class PPOTrainer(BaseRLTrainer):
         # Start E2E block
         # batch = apply_obs_transforms_batch(batch, self.obs_transforms)  # type: ignore
         with torch.no_grad():
-            batch, _ = apply_obs_transforms_batch_video(batch, self.obs_transforms)
+            batch, _ = apply_obs_transforms_batch_video(batch, self.obs_transforms, self.decoder)
         # End E2E block
 
         current_episode_reward = torch.zeros(
@@ -1269,7 +1269,7 @@ class PPOTrainer(BaseRLTrainer):
 
             # Start E2E block
             with torch.no_grad():
-                batch, _ = apply_obs_transforms_batch_video(batch, self.obs_transforms)  # type: ignore
+                batch, _ = apply_obs_transforms_batch_video(batch, self.obs_transforms, self.decoder)  # type: ignore
             # End E2E block
 
             not_done_masks = torch.tensor(

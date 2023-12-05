@@ -1242,18 +1242,58 @@ def apply_obs_transforms_obs_space(
 
 def apply_obs_transforms_batch_video(
     batch: Dict[str, torch.Tensor],
-    obs_transforms: Iterable[ObservationTransformer]
+    obs_transforms: Iterable[ObservationTransformer],
+    decoder
 ) -> Tuple[Dict[str, torch.Tensor], List[Dict[str, torch.Tensor]]]:
     batch_all=[]
+    # """
+    if isinstance(decoder, ObservationTransformer):
+        reconstruction = decoder(batch)
+        if reconstruction['rgb'].shape[-1] == 1:
+            new_image_recon = reconstruction['rgb'][0, :, :, 0].detach().cpu().numpy()
+            min_val = np.min(new_image_recon)
+            max_val = np.max(new_image_recon)
+            if (max_val - min_val) != 0:
+                normalized_img_tensor = (new_image_recon - min_val) / (max_val - min_val)
+            else:
+                normalized_img_tensor = new_image_recon / np.max(new_image_recon)
+        else:
+            new_image_recon = reconstruction['rgb'][0, :, :, :].detach().cpu().numpy()
+            min_val = np.min(new_image_recon)
+            max_val = np.max(new_image_recon)
+            if (max_val - min_val) != 0:
+                normalized_img_tensor = (new_image_recon - min_val) / (max_val - min_val)
+            else:
+                normalized_img_tensor = new_image_recon / np.max(new_image_recon)
+        plt.imsave('/home/carsan/Data/habitatai/images/img_' + str(decoder)[0:6] + '.png',normalized_img_tensor, cmap=plt.cm.gray)
+    # """
+
     for obs_transform in obs_transforms:
         batch = obs_transform(batch)
         batch_all.append(copy.deepcopy(batch))
-        #added
-        if batch['rgb'].shape[-1]==1:
-            plt.imsave('/home/carsan/Data/habitatai/images/img_'+str(obs_transform)[0:6]+'.png', batch['rgb'][0,:,:,0].detach().cpu().numpy(), cmap=plt.cm.gray)
-        else:
-            plt.imsave('/home/carsan/Data/habitatai/images/img_'+str(obs_transform)[0:6]+'.png', batch['rgb'][0,:,:,:].detach().cpu().numpy(), cmap=plt.cm.gray)
 
+        # Added
+        # """
+        if batch['rgb'].shape[-1]==1:
+            new_image = batch['rgb'][0, :, :, :].detach().cpu().numpy()
+            min_val = np.min(new_image)
+            max_val = np.max(new_image)
+            if (max_val - min_val) != 0:
+                normalized_img_tensor = (new_image - min_val) / (
+                        max_val - min_val)
+            else:
+                normalized_img_tensor = new_image / np.max(new_image)
+            plt.imsave('/home/carsan/Data/habitatai/images/img_'+str(obs_transform)[0:6]+'.png', normalized_img_tensor, cmap=plt.cm.gray)
+        else:
+            new_image = batch['rgb'][0,:,:,0].detach().cpu().numpy()
+            min_val = np.min(new_image)
+            max_val = np.max(new_image)
+            if (max_val - min_val) != 0:
+                normalized_img_tensor = (new_image - min_val) / (max_val - min_val)
+            else:
+                normalized_img_tensor = new_image / np.max(new_image)
+            plt.imsave('/home/carsan/Data/habitatai/images/img_'+str(obs_transform)[0:6]+'.png', normalized_img_tensor, cmap=plt.cm.gray)
+        # """
     return batch, batch_all
 
 @baseline_registry.register_obs_transformer()

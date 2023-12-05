@@ -51,6 +51,7 @@ class SingleAgentAccessMgr(AgentAccessMgr):
         num_envs: int,
         percent_done_fn: Callable[[], float],
         lr_schedule_fn: Optional[Callable[[float], float]] = None,
+        **kwargs
     ):
         """
         :param percent_done_fn: Function that will return the percent of the
@@ -62,6 +63,8 @@ class SingleAgentAccessMgr(AgentAccessMgr):
         """
 
         self._env_spec = env_spec
+        self.obs_transforms = kwargs.get('obs_transforms', None)
+        self.decoder = kwargs.get('decoder', None)
         self._config = config
         self._num_envs = num_envs
         self._device = device
@@ -127,7 +130,7 @@ class SingleAgentAccessMgr(AgentAccessMgr):
                 self._config.habitat_baselines.updater_name
             )
 
-        updater = updater_cls.from_config(actor_critic, self._ppo_cfg)
+        updater = updater_cls.from_config(actor_critic, self._ppo_cfg, self.obs_transforms, self.decoder)
         logger.info(
             "agent number of parameters: {}".format(
                 sum(param.numel() for param in updater.parameters())
@@ -153,19 +156,6 @@ class SingleAgentAccessMgr(AgentAccessMgr):
             self._env_spec.action_space,
             orig_action_space=self._env_spec.orig_action_space,
         )
-
-        # Start E2E block
-        self.obs_transforms = get_active_obs_transforms(self._config)
-
-        if 'Encoder' in str(self.obs_transforms[1]):
-            self.decoder = E2E_Decoder()  #Initialization in old version here
-            self.decoder.to(self._device)
-            # self.agent.actor_critic.net.decoder.to(self.device)
-            # self.actor_critic.net.decoder.to(self.device)
-
-            self.obs_transforms[1].model.to(self._device)
-            self.obs_transforms[2].gaussian.to(self._device)
-        # End E2E block
 
         if (
             self._config.habitat_baselines.rl.ddppo.pretrained_encoder

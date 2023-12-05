@@ -56,8 +56,9 @@ loss_function = CustomLoss(recon_loss_type='mse',
 class PPO(nn.Module, Updater):
     entropy_coef: Union[float, LagrangeInequalityCoefficient]
 
+    # Changed for E2E
     @classmethod
-    def from_config(cls, actor_critic: NetPolicy, config):
+    def from_config(cls, actor_critic: NetPolicy, config, obs_transforms=None, decoder=None):
         config = {k.lower(): v for k, v in config.items()}
         param_dict = dict(actor_critic=actor_critic)
         sig = inspect.signature(cls.__init__)
@@ -71,6 +72,10 @@ class PPO(nn.Module, Updater):
 
             param_dict[p.name] = config[p.name]
 
+        # Start E2E block (allow decoder and obs_transforms to exist in the init of ppo already
+        param_dict["decoder"] = decoder
+        param_dict["obs_transforms"] = obs_transforms
+        # End E2E block
         return cls(**param_dict)
 
     def __init__(
@@ -96,6 +101,8 @@ class PPO(nn.Module, Updater):
         super().__init__()
 
         self.actor_critic = actor_critic
+        self.obs_transforms = obs_transforms
+        self.decoder = decoder
 
         self.clip_param = clip_param
         self.ppo_epoch = ppo_epoch
@@ -109,23 +116,8 @@ class PPO(nn.Module, Updater):
 
         self.device = next(actor_critic.parameters()).device
 
-        # Start E2E block
-        if all(isinstance(item, ObservationTransformer) for item in obs_transforms):
-            pass
-        else:
-            path_config = str(Path('~/Internship/PyCharm_projects/habitat-phosphenes/'
-                 'ppo_pointnav_phosphenes_complete.yaml').expanduser())
-            _config = phosphenes.get_config(path_config)
-
-            obs_transforms = get_active_obs_transforms(_config)
-
-            obs_trans_cls = baseline_registry.get_obs_transformer("E2E_Decoder")
-            if obs_trans_cls is None:
-                raise ValueError(
-                    f"Unkown ObservationTransform with name E2E_Decoder."
-                )
-            decoder = obs_trans_cls.from_config({"type":"E2E_Decoder"})
-        # End E2E block
+        # From here, i deleted the code to load again the obs_transforms,
+        # if everything works, now they come from ppo_trainer through single_agent_access_mgr
 
         if (
             use_adaptive_entropy_pen
@@ -145,13 +137,7 @@ class PPO(nn.Module, Updater):
 
         self.use_normalized_advantage = use_normalized_advantage
 
-        params = list(filter(lambda p: p.requires_grad, self.parameters()))
-
-        self.non_ac_params = [
-            p
-            for name, p in self.named_parameters()
-            if not name.startswith("actor_critic.")
-        ]
+        params = list(filter(lambda p: p.requires_grad, self.parameters())) # Added the actor_critic word to not include decoder twice
 
         # Start E2E block
 
@@ -163,28 +149,19 @@ class PPO(nn.Module, Updater):
         # Or, how can I reverse engineer the way it used to work in the previous version of habitat? I cannot run that code
 
         # E2E block
-        parameter_list = []
-
         # In general, all the parameters have required_grad set to true, at least for Encoder, actor_critic, and decoder.
-        for transform in obs_transforms: # Around 21 parameters tracked (Simulator does not have parameters tracked)
+        for transform in self.obs_transforms: # Around 22 parameters tracked (Simulator does not have parameters tracked)
             for p in transform.parameters():
                 if hasattr(p, "requires_grad") and p.requires_grad:
-                    print(str(transform)[:6])
-                    parameter_list.append(p)
+                    #print(str(transform)[:6])
+                    params.append(p)
 
-        for p in actor_critic.parameters(): # Around 74 parameters tracked (95 together with the transforms)
-            if hasattr(p, "requires_grad") and p.requires_grad:
-                print('actor')
-                parameter_list.append(p)
+        # for p in self.decoder.parameters(): # 22 parameters
+        #     if hasattr(p, "requires_grad") and p.requires_grad:
+                #print('decoder')
+                # params.append(p)
 
-        for p in decoder.parameters(): # 22 parameters
-            if hasattr(p, "requires_grad") and p.requires_grad:
-                print('decoder')
-                parameter_list.append(p)
-
-        print('whole list', len(parameter_list))
-
-        params = parameter_list
+        print('whole list', len(params))
         # End E2E block
 
         if len(params) > 0:
@@ -332,16 +309,14 @@ class PPO(nn.Module, Updater):
         total_loss = torch.stack(all_losses).sum()
 
         total_loss = self.before_backward(total_loss)
-        # torch.use_deterministic_algorithms(False)
         total_loss.backward()
-        # torch.use_deterministic_algorithms(True)
         self.after_backward(total_loss)
 
         grad_norm = self.before_step()
         self.optimizer.step()
         self.after_step()
 
-        with inference_mode():
+        with torch.no_grad():
             if "is_coeffs" in batch:
                 record_min_mean_max(batch["is_coeffs"], "ver_is_coeffs")
             record_min_mean_max(orig_values, "value_pred")
@@ -384,7 +359,7 @@ class PPO(nn.Module, Updater):
 
     # Start E2E block
     def _update_from_batch_e2e(self, batch, epoch, rollouts: RolloutStorage,
-                               learner_metrics, obs_transforms, decoder):
+                               learner_metrics):
         """
                 Performs a gradient update from the minibatch.
                 """
@@ -414,14 +389,14 @@ class PPO(nn.Module, Updater):
             update_reconstructions
         ) = self._evaluate_actions_e2e(
             # this is the where the forward pass happens
-            obs_transforms,
+            self.obs_transforms,
             batch["observations_orig"],
             # batch["observations"],
             batch["recurrent_hidden_states"],
             batch["prev_actions"],
             batch["masks"],
             batch["actions"],
-            decoder,
+            self.decoder,
             batch.get("rnn_build_seq_info", None),
         )
 
@@ -464,8 +439,6 @@ class PPO(nn.Module, Updater):
         else:
             mean_fn = torch.mean
 
-        self.optimizer.zero_grad()
-
         action_loss, value_loss, dist_entropy = map(
             mean_fn,
             (action_loss, value_loss, dist_entropy),
@@ -489,25 +462,33 @@ class PPO(nn.Module, Updater):
             phosphenes=update_phosphenes,
             reconstruction=update_reconstructions)
 
-        stim_loss = stim_loss.to(torch.float32)
+        stim_loss = stim_loss.to(torch.float32)  # usually super high, around 16000
         recon_loss = recon_loss.to(torch.float32)
         spars_loss = spars_loss.to(torch.float32)
 
-        total_loss = weight_loss_ppo * ppo_loss + (
-                1 - weight_loss_ppo) * torch.mean(stim_loss)
+        total_loss = weight_loss_ppo * ppo_loss + (1 - weight_loss_ppo) * torch.mean(stim_loss)
         total_loss = total_loss.to(torch.float32)
 
+        self.optimizer.zero_grad() # Not used anymore, I have set grads to zero at the beginning already
+
         self.before_backward(total_loss)
-        # torch.use_deterministic_algorithms(False)
         total_loss.backward()
-        # torch.use_deterministic_algorithms(True)
         self.after_backward(total_loss)
+
+        # Hard code the update of optimizer
+        # counter = 76
+        # for param in self.decoder.parameters():
+        #     self.optimizer.param_groups[0]['params'][counter].grad = param.grad
+        #     counter = counter + 1
+        # for param in self.obs_transforms[1].parameters():
+        #     self.optimizer.param_groups[0]['params'][counter].grad = param.grad
+        #     counter = counter + 1
 
         grad_norm = self.before_step()
         self.optimizer.step()
         self.after_step()
 
-        with inference_mode():
+        with torch.no_grad():
             if "is_coeffs" in batch:
                 record_min_mean_max(batch["is_coeffs"], "ver_is_coeffs")
             record_min_mean_max(orig_values, "value_pred")
@@ -582,7 +563,7 @@ class PPO(nn.Module, Updater):
 
         self._set_grads_to_none()
 
-        with inference_mode():
+        with torch.no_grad():
             return {
                 k: float(
                     torch.stack(
@@ -594,8 +575,7 @@ class PPO(nn.Module, Updater):
 
     # Start E2E block
     def update_e2e(self, rollouts: RolloutStorage,
-                   obs_transforms: Iterable[ObservationTransformer],
-                   decoder) -> Dict[str, float]:
+                   ) -> Dict[str, float]:
 
         advantages = self.get_advantages(rollouts)
 
@@ -608,14 +588,14 @@ class PPO(nn.Module, Updater):
             )
 
             for _bid, batch in enumerate(data_generator):
-                self._update_from_batch_e2e(batch, epoch, rollouts, learner_metrics, obs_transforms, decoder)
+                self._update_from_batch_e2e(batch, epoch, rollouts, learner_metrics)
 
             profiling_wrapper.range_pop()  # PPO.update epoch
 
-        self._set_grads_to_none()
+        # self._set_grads_to_none()
 
         # The decision of which return method to use or if combine them depends on which variable I record in the learner_metrics array
-        with inference_mode():
+        with torch.no_grad():
             return {
                 k: float(
                     torch.stack(

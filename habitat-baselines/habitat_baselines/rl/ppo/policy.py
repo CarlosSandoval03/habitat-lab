@@ -260,10 +260,9 @@ class NetPolicy(nn.Module, Policy):
         act,
         deterministic=False,
     ):
-        features, rnn_hidden_states, _, _, _, _, _ = self.net(
+        features, rnn_hidden_states, _, _, _, _, _ = self.net( # Goes to forward function in resnet_policy.py
             obs_transforms, observations, rnn_hidden_states, prev_actions,
             masks, decoder, act
-            # obs_transforms, observations, rnn_hidden_states, prev_actions, masks, act
         )
         distribution = self.action_distribution(features)
         value = self.critic(features)
@@ -279,7 +278,7 @@ class NetPolicy(nn.Module, Policy):
         action_log_probs = distribution.log_probs(action)
         # return value, action, action_log_probs, rnn_hidden_states
         # The simple return statement does not create the appropriate object to
-        # return action_data.env_actions
+        # later on return action_data.env_actions
         return PolicyActionData(
             values=value,
             actions=action,
@@ -297,9 +296,8 @@ class NetPolicy(nn.Module, Policy):
 
     # Start E2E block (function added)
     def get_value_e2e(self, obs_transforms, observations, rnn_hidden_states, prev_actions, masks, decoder, act):
-        features, _ , _ ,_, _, _, _ = self.net(
+        features, _ , _ ,_, _, _, _ = self.net( # Goes to forward function in resnet_policy.py (same as act_e2e does)
             obs_transforms, observations, rnn_hidden_states, prev_actions, masks, decoder, act
-            # obs_transforms, observations, rnn_hidden_states, prev_actions, masks, act
         )
         return self.critic(features)
     # End E2E block
