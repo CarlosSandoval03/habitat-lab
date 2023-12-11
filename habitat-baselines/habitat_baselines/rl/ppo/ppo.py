@@ -469,7 +469,7 @@ class PPO(nn.Module, Updater):
         total_loss = weight_loss_ppo * ppo_loss + (1 - weight_loss_ppo) * torch.mean(stim_loss)
         total_loss = total_loss.to(torch.float32)
 
-        self.optimizer.zero_grad() # Not used anymore, I have set grads to zero at the beginning already
+        self.optimizer.zero_grad() # Not used anymore, I have set grads to zero at the beginning already, but it does not matter
 
         self.before_backward(total_loss)
         total_loss.backward()

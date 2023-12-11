@@ -956,6 +956,7 @@ class PPOTrainer(BaseRLTrainer):
                                 wall_time=(time.time() - self.t_start) + prev_time,
                             ),
                         )
+                    """ # Comment the part where gradients are plotted (for speed)
                         # check grads
                         for model in self.obs_transforms:
                             # print('model', model)
@@ -995,6 +996,7 @@ class PPOTrainer(BaseRLTrainer):
                                 writer.add_histogram(
                                     f"{'decoder'}/weights/{tag}",
                                     value.data.cpu(), self.num_updates_done)
+                    """
                     # End E2E block
 
                     count_checkpoints += 1

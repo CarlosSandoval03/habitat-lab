@@ -357,7 +357,7 @@ class NetPolicy(nn.Module, Policy):
         decoder,
         rnn_build_seq_info: Dict[str, torch.Tensor]
     ):
-        features, rnn_hidden_states, aux_loss_state, observations_gray, stimulations, phosphenes, reconstructions = self.net.forward(
+        features, rnn_hidden_states, aux_loss_state, observations_gray, stimulations, phosphenes, reconstructions = self.net.forward( # Goes to forward function in resnet_policy.py
             obs_transforms, observations_orig, rnn_hidden_states,
             prev_actions, masks, decoder, act=False, rnn_build_seq_info=rnn_build_seq_info
         )
