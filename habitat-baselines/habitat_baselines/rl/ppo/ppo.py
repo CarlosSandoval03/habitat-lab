@@ -361,8 +361,8 @@ class PPO(nn.Module, Updater):
     def _update_from_batch_e2e(self, batch, epoch, rollouts: RolloutStorage,
                                learner_metrics):
         """
-                Performs a gradient update from the minibatch.
-                """
+            Performs a gradient update from the minibatch.
+        """
 
         def record_min_mean_max(t: torch.Tensor, prefix: str):
             for name, op in (
@@ -374,8 +374,8 @@ class PPO(nn.Module, Updater):
 
         self._set_grads_to_none()
 
-        # added
-        weight_loss_ppo = 0.3
+        # Added for E2E
+        weight_loss_ppo = 0.9
 
         (
             values,
@@ -444,11 +444,14 @@ class PPO(nn.Module, Updater):
             (action_loss, value_loss, dist_entropy),
         )
 
-        ppo_loss = (
-            value_loss * self.value_loss_coef
-            + action_loss
+        all_losses = [
+            value_loss * self.value_loss_coef,
+            action_loss,
             - dist_entropy * self.entropy_coef
-        )
+        ]
+        all_losses.extend(v["loss"] for v in aux_loss_res.values())
+
+        ppo_loss = torch.stack(all_losses).sum()
 
         observations_gray = observations_gray.to(torch.float32)
         update_stimulations = update_stimulations.to(torch.float32)
@@ -474,15 +477,6 @@ class PPO(nn.Module, Updater):
         self.before_backward(total_loss)
         total_loss.backward()
         self.after_backward(total_loss)
-
-        # Hard code the update of optimizer
-        # counter = 76
-        # for param in self.decoder.parameters():
-        #     self.optimizer.param_groups[0]['params'][counter].grad = param.grad
-        #     counter = counter + 1
-        # for param in self.obs_transforms[1].parameters():
-        #     self.optimizer.param_groups[0]['params'][counter].grad = param.grad
-        #     counter = counter + 1
 
         grad_norm = self.before_step()
         self.optimizer.step()

@@ -1246,6 +1246,9 @@ def apply_obs_transforms_batch_video(
     decoder
 ) -> Tuple[Dict[str, torch.Tensor], List[Dict[str, torch.Tensor]]]:
     batch_all=[]
+    # Save original image
+    base_path = '/home/carsan/Data/habitatai/images/img_'
+    plt.imsave(base_path + 'input' + '.png', batch['rgb'][0, :, :, :].detach().cpu().numpy())
 
     for obs_transform in obs_transforms:
         batch = obs_transform(batch)
@@ -1254,23 +1257,23 @@ def apply_obs_transforms_batch_video(
         # """
         if batch['rgb'].shape[-1]==1: # Gray and Encoder
             new_image = batch['rgb'][0, :, :, :].detach().cpu().numpy()
-            plt.imsave('/home/carsan/Data/habitatai/images/img_'+str(obs_transform)[0:6]+'.png', np.squeeze(new_image), cmap=plt.cm.gray)
+            plt.imsave(base_path+str(obs_transform)[0:6]+'.png', np.squeeze(new_image), cmap=plt.cm.gray)
         else: # Simulator
             new_image = batch['rgb'][0,:,:,:].detach().cpu().numpy()
-            # min_val = np.min(new_image)
-            # max_val = np.max(new_image)
-            # if (max_val - min_val) != 0:
-            #     new_image = (new_image - min_val) / (max_val - min_val)
-            # else:
-            #     new_image = new_image / np.max(new_image)
-            plt.imsave('/home/carsan/Data/habitatai/images/img_'+str(obs_transform)[0:7]+'.png', new_image, cmap=plt.cm.gray)
+            min_val = np.min(new_image)
+            max_val = np.max(new_image)
+            if (max_val - min_val) != 0:
+                new_image = (new_image - min_val) / (max_val - min_val)
+            else:
+                new_image = new_image / np.max(new_image)
+            plt.imsave(base_path+str(obs_transform)[0:7]+'.png', new_image, cmap=plt.cm.gray)
         # """
 
     # """
     if isinstance(decoder, ObservationTransformer):
         reconstruction = decoder(batch.copy())
         new_image_recon = reconstruction['rgb'][0, :, :, 0].detach().cpu().numpy()
-        plt.imsave('/home/carsan/Data/habitatai/images/img_' + str(decoder)[0:7] + '.png', new_image_recon, cmap=plt.cm.gray)
+        plt.imsave(base_path + str(decoder)[0:7] + '.png', new_image_recon, cmap=plt.cm.gray)
     # """
     return batch, batch_all
 
