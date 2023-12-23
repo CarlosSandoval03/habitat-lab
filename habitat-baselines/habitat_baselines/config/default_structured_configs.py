@@ -211,6 +211,28 @@ cs.store(
     name="black_screen_base",
     node=BlackScreenConfig,
 )
+
+
+@dataclass
+class BackgroundSaliencyDetectionConfig(ObsTransformConfig):
+    type: str = "BackgroundSaliencyDetection"
+    masking_method: str = "blur"
+    background_detection: bool = True
+    saliency_masking: bool = True
+    channels_last: bool = True #Comment??
+    trans_keys: Tuple[str, ...] = ( #Comment??
+        "rgb",
+        "depth",
+        "semantic",
+    )
+
+
+cs.store(
+    package="habitat_baselines.rl.policy.obs_transforms.background_saliency_detection",
+    group="habitat_baselines/rl/policy/obs_transforms",
+    name="background_saliency_detection_base",
+    node=BackgroundSaliencyDetectionConfig,
+)
 # END OF MY CODE
 
 

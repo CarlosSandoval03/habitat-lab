@@ -247,9 +247,9 @@ class PPO(nn.Module, Updater):
         total_loss = torch.stack(all_losses).sum()
 
         total_loss = self.before_backward(total_loss)
-        torch.use_deterministic_algorithms(False)
+        # torch.use_deterministic_algorithms(False)
         total_loss.backward()
-        torch.use_deterministic_algorithms(True)
+        # torch.use_deterministic_algorithms(True)
         self.after_backward(total_loss)
 
         grad_norm = self.before_step()
