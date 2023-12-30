@@ -46,7 +46,7 @@ import gc
 EPS_PPO = 1e-5
 
 # Start E2E block
-loss_function = CustomLoss(recon_loss_type='mse',
+loss_function = CustomLoss(recon_loss_type='ssim',
                                             recon_loss_param=0,
                                             stimu_loss_type=None,
                                             kappa=0)
@@ -375,7 +375,7 @@ class PPO(nn.Module, Updater):
         self._set_grads_to_none()
 
         # Added for E2E
-        weight_loss_ppo = 0.9
+        weight_loss_ppo = 0.6
 
         (
             values,
@@ -444,14 +444,20 @@ class PPO(nn.Module, Updater):
             (action_loss, value_loss, dist_entropy),
         )
 
-        all_losses = [
-            value_loss * self.value_loss_coef,
-            action_loss,
-            - dist_entropy * self.entropy_coef
-        ]
-        all_losses.extend(v["loss"] for v in aux_loss_res.values())
+        # all_losses = [
+        #     value_loss * self.value_loss_coef,
+        #     action_loss,
+        #     - dist_entropy * self.entropy_coef
+        # ]
+        # all_losses.extend(v["loss"] for v in aux_loss_res.values())
+        #
+        # ppo_loss = torch.stack(all_losses).sum()
 
-        ppo_loss = torch.stack(all_losses).sum()
+        ppo_loss = (
+            value_loss * self.value_loss_coef
+            + action_loss
+            - dist_entropy * self.entropy_coef
+        )
 
         observations_gray = observations_gray.to(torch.float32)
         update_stimulations = update_stimulations.to(torch.float32)
