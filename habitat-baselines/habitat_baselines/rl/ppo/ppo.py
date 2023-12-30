@@ -46,7 +46,7 @@ import gc
 EPS_PPO = 1e-5
 
 # Start E2E block
-loss_function = CustomLoss(recon_loss_type='ssim',
+loss_function = CustomLoss(recon_loss_type='mse',
                                             recon_loss_param=0,
                                             stimu_loss_type=None,
                                             kappa=0)

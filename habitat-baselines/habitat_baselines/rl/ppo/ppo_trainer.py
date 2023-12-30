@@ -139,7 +139,7 @@ class PPOTrainer(BaseRLTrainer):
         self.obs_transforms = get_active_obs_transforms(self.config)
 
         # Start E2E block
-        if 'Encoder' in str(self.obs_transforms[1]):
+        if any('Encoder' in str(transform) for transform in self.obs_transforms):
             obs_trans_cls = baseline_registry.get_obs_transformer(
                 "E2E_Decoder")
             if obs_trans_cls is None:
@@ -149,8 +149,12 @@ class PPOTrainer(BaseRLTrainer):
             self.decoder = obs_trans_cls.from_config({"type": "E2E_Decoder"})
 
             self.decoder.to(self.device)
-            self.obs_transforms[1].model.to(self.device)
-            self.obs_transforms[2].gaussian.to(self.device)
+
+            encoder_index = next((i for i, transform in enumerate(self.obs_transforms) if 'Encoder' in str(transform)), None)
+            encoder_index = int(encoder_index)
+
+            self.obs_transforms[encoder_index].model.to(self.device)
+            self.obs_transforms[encoder_index+1].gaussian.to(self.device)
         # End E2E block
 
         self._env_spec.observation_space = apply_obs_transforms_obs_space(
@@ -385,10 +389,15 @@ class PPOTrainer(BaseRLTrainer):
         Returns:
             None
         """
+        encoder_index = next(
+            (i for i, transform in enumerate(self.obs_transforms) if
+             'Encoder' in str(transform)), None)
+        encoder_index = int(encoder_index)
+
         checkpoint = {
             **self._agent.get_save_state(),
-            "state_dict_encoder": self.obs_transforms[1].state_dict(),
-            "state_dict_simulator": self.obs_transforms[2].state_dict(),
+            "state_dict_encoder": self.obs_transforms[encoder_index].state_dict(),
+            "state_dict_simulator": self.obs_transforms[encoder_index+1].state_dict(),
             "state_dict_decoder": self.decoder.state_dict(),
             "config": self.config,
         }
@@ -441,7 +450,7 @@ class PPOTrainer(BaseRLTrainer):
             # Start E2E block
             # The change is the inclusion of the if, the content of
             # the else section remains the same
-            if 'Encoder' in str(self.obs_transforms[1]):
+            if any('Encoder' in str(transform) for transform in self.obs_transforms):
                 profiling_wrapper.range_push("compute actions")
                 action_data = self._agent.actor_critic.act_e2e(
                     self.obs_transforms,
@@ -495,7 +504,7 @@ class PPOTrainer(BaseRLTrainer):
         # )
 
         # Start E2E block
-        if 'Encoder' in str(self.obs_transforms[1]):  # no sure if needed
+        if any('Encoder' in str(transform) for transform in self.obs_transforms):  # no sure if needed
             # print('inserte2e compute')
             self._agent.rollouts.insert_e2e(
                 next_recurrent_hidden_states=action_data.rnn_hidden_states,
@@ -590,7 +599,7 @@ class PPOTrainer(BaseRLTrainer):
         # )
 
         # Start E2E block
-        if 'Encoder' in str(self.obs_transforms[1]):
+        if any('Encoder' in str(transform) for transform in self.obs_transforms):
             self._agent.rollouts.insert_e2e(
                 next_observations_orig=batch_orig,
                 next_observations=batch,
@@ -626,7 +635,7 @@ class PPOTrainer(BaseRLTrainer):
             step_batch = self._agent.rollouts.get_last_step()
 
             # Start E2E block
-            if 'Encoder' in str(self.obs_transforms[1]):
+            if any('Encoder' in str(transform) for transform in self.obs_transforms):
                 next_value = self._agent.actor_critic.get_value_e2e(
                     self.obs_transforms,
                     step_batch["observations"],
@@ -655,14 +664,18 @@ class PPOTrainer(BaseRLTrainer):
         self._agent.train()
 
         # Start E2E block
-        if 'Encoder' in str(self.obs_transforms[1]):
-            self.obs_transforms[1].train()
-            self.obs_transforms[2].train()
+        if any('Encoder' in str(transform) for transform in self.obs_transforms):
+            encoder_index = next(
+                (i for i, transform in enumerate(self.obs_transforms) if
+                 'Encoder' in str(transform)), None)
+            encoder_index = int(encoder_index)
+            self.obs_transforms[encoder_index].train()
+            self.obs_transforms[encoder_index+1].train()
             self.decoder.train()
         # End E2E block
 
         # Start E2E block
-        if 'Encoder' in str(self.obs_transforms[1]):
+        if any('Encoder' in str(transform) for transform in self.obs_transforms):
             losses = self._agent.updater.update_e2e(
                 self._agent.rollouts
             )
@@ -884,9 +897,13 @@ class PPOTrainer(BaseRLTrainer):
                 self._agent.eval()
 
                 # Start E2E block
-                if 'Encoder' in str(self.obs_transforms[1]):
-                    self.obs_transforms[1].eval()
-                    self.obs_transforms[2].eval()
+                if any('Encoder' in str(transform) for transform in self.obs_transforms):
+                    encoder_index = next(
+                        (i for i, transform in enumerate(self.obs_transforms)
+                         if 'Encoder' in str(transform)), None)
+                    encoder_index = int(encoder_index)
+                    self.obs_transforms[encoder_index].eval()
+                    self.obs_transforms[encoder_index+1].eval()
                     self.decoder.eval()
                 # End E2E block
 
@@ -948,7 +965,7 @@ class PPOTrainer(BaseRLTrainer):
                     )
 
                     # Start E2E block
-                    if 'Encoder' in str(self.obs_transforms[1]):
+                    if any('Encoder' in str(transform) for transform in self.obs_transforms):
                         self.save_checkpoint_phosphene(
                             f"ckpt_phos.{count_checkpoints}.pth",
                             dict(
@@ -1091,14 +1108,19 @@ class PPOTrainer(BaseRLTrainer):
 
         if self._agent.actor_critic.should_load_agent_state:
             # Start E2E block
-            if 'Encoder' in str(self.obs_transforms[1]):
+            if any('Encoder' in str(transform) for transform in self.obs_transforms):
+                encoder_index = next(
+                    (i for i, transform in enumerate(self.obs_transforms) if
+                     'Encoder' in str(transform)), None)
+                encoder_index = int(encoder_index)
+
                 ckpt_dict_phosphene = self.load_checkpoint(
                     checkpoint_path_phos, map_location="cpu"
                 )
                 print('loaded encoder checkpoint')
-                self.obs_transforms[1].load_state_dict(
+                self.obs_transforms[encoder_index].load_state_dict(
                     ckpt_dict_phosphene["state_dict_encoder"])
-                self.obs_transforms[2].load_state_dict(
+                self.obs_transforms[encoder_index+1].load_state_dict(
                     ckpt_dict_phosphene["state_dict_simulator"])
                 self.decoder.load_state_dict(
                     ckpt_dict_phosphene["state_dict_decoder"])
@@ -1173,9 +1195,13 @@ class PPOTrainer(BaseRLTrainer):
         self._agent.eval()
 
         # Start E2E block
-        if 'Encoder' in str(self.obs_transforms[1]):
-            self.obs_transforms[1].eval()
-            self.obs_transforms[2].eval()
+        if any('Encoder' in str(transform) for transform in self.obs_transforms):
+            encoder_index = next(
+                (i for i, transform in enumerate(self.obs_transforms) if
+                 'Encoder' in str(transform)), None)
+            encoder_index = int(encoder_index)
+            self.obs_transforms[encoder_index].eval()
+            self.obs_transforms[encoder_index+1].eval()
             self.decoder.eval()
         # end E2E block
 
@@ -1186,7 +1212,7 @@ class PPOTrainer(BaseRLTrainer):
             current_episodes_info = self.envs.current_episodes()
 
             # Start E2E block
-            if 'Encoder' in str(self.obs_transforms[1]):
+            if any('Encoder' in str(transform) for transform in self.obs_transforms):
                 with torch.no_grad():
                     action_data = self._agent.actor_critic.act_e2e(
                         self.obs_transforms,

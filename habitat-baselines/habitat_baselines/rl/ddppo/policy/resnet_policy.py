@@ -633,10 +633,17 @@ class PointNavResNetNet(Net):
     ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
         x = []
         # Start E2E block
-        observations_gray = obs_transforms[0](observations_orig)
-        stimulations = obs_transforms[1](observations_gray)
-        phosphenes = obs_transforms[2](stimulations)
-        observations = phosphenes
+        if any('Background' in str(transform) for transform in obs_transforms):
+            observation_background = obs_transforms[0](observations_orig)
+            observations_gray = obs_transforms[1](observation_background)
+            stimulations = obs_transforms[2](observations_gray)
+            phosphenes = obs_transforms[3](stimulations)
+            observations = phosphenes
+        else:
+            observations_gray = obs_transforms[0](observations_orig)
+            stimulations = obs_transforms[1](observations_gray)
+            phosphenes = obs_transforms[2](stimulations)
+            observations = phosphenes
         # End E2E block
 
         aux_loss_state = {}
@@ -795,12 +802,23 @@ class PointNavResNetNet(Net):
 
         # Start E2E block
         if not act:
-            observations_gray = obs_transforms[0](observations_orig)
-            observations_gray_clone = observations_gray['rgb'].clone()
-            stimulations = obs_transforms[1](observations_gray)
-            stimulations_clone = stimulations['rgb'].clone()
-            phosphenes = obs_transforms[2](stimulations)
-            phosphenes_clone = phosphenes['rgb'].clone()
+            if any('Background' in str(transform) for transform in obs_transforms):
+                observation_background = obs_transforms[0](observations_orig)
+                observation_background_clone = observation_background['rgb'].clone()
+                observations_gray = obs_transforms[1](observation_background)
+                observations_gray_clone = observations_gray['rgb'].clone()
+                stimulations = obs_transforms[2](observations_gray)
+                stimulations_clone = stimulations['rgb'].clone()
+                phosphenes = obs_transforms[3](stimulations)
+                phosphenes_clone = phosphenes['rgb'].clone()
+                observations = phosphenes
+            else:
+                observations_gray = obs_transforms[0](observations_orig)
+                observations_gray_clone = observations_gray['rgb'].clone()
+                stimulations = obs_transforms[1](observations_gray)
+                stimulations_clone = stimulations['rgb'].clone()
+                phosphenes = obs_transforms[2](stimulations)
+                phosphenes_clone = phosphenes['rgb'].clone()
 
             observations = phosphenes
 

@@ -167,7 +167,7 @@ class SingleAgentAccessMgr(AgentAccessMgr):
             )
 
             # Start E2E block
-            if 'Encoder' in str(self.obs_transforms[1]):
+            if any('Encoder' in str(transform) for transform in self.obs_transforms):
                 pretrained_agent_with_decoder = self.load_checkpoint(
                     self.checkpoint_path_phosphene, map_location="cpu")
                 # torch.load(self.checkpoint_path) #FIX
@@ -191,7 +191,7 @@ class SingleAgentAccessMgr(AgentAccessMgr):
             )
 
             # Start E2E block
-            if 'Encoder' in str(self.obs_transforms[1]):
+            if any('Encoder' in str(transform) for transform in self.obs_transforms):
                 # self.actor_critic.net.decoder.load_state_dict(pretrained_agent_with_decoder["state_dict_decoder"])
                 self.decoder.load_state_dict(
                     pretrained_agent_with_decoder["state_dict_decoder"])

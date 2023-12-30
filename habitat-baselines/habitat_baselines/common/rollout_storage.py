@@ -43,7 +43,7 @@ class RolloutStorage(Storage):
         self.buffers = TensorDict()
 
         # Start E2E block
-        if 'Encoder' in str(obs_transforms[1]):
+        if any('Encoder' in str(transform) for transform in obs_transforms):
             self.buffers["observations_orig"] = TensorDict()
 
             for sensor in observation_space.spaces:
@@ -70,7 +70,7 @@ class RolloutStorage(Storage):
                         *observation_space.spaces[sensor].shape,
                     ),
                     # dtype=observation_space.spaces[sensor].dtype,
-                    dtype="float32" if 'Encoder' in str(obs_transforms[1]) else
+                    dtype="float32" if any('Encoder' in str(transform) for transform in obs_transforms) else
                     observation_space.spaces[sensor].dtype,
                 )
             )
