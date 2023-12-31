@@ -410,7 +410,7 @@ class PPO(nn.Module, Updater):
             )
             * batch["advantages"]
         )
-        action_loss = -(torch.min(surr1, surr2).mean())
+        action_loss = -torch.min(surr1, surr2)
 
         values = values.float()
         orig_values = values
@@ -430,7 +430,7 @@ class PPO(nn.Module, Updater):
         value_loss = 0.5 * F.mse_loss(
             values, batch["returns"], reduction="none"
         )
-        dist_entropy = dist_entropy.mean()
+        # dist_entropy = dist_entropy.mean()
 
         if "is_coeffs" in batch:
             assert isinstance(batch["is_coeffs"], torch.Tensor)
@@ -444,20 +444,14 @@ class PPO(nn.Module, Updater):
             (action_loss, value_loss, dist_entropy),
         )
 
-        # all_losses = [
-        #     value_loss * self.value_loss_coef,
-        #     action_loss,
-        #     - dist_entropy * self.entropy_coef
-        # ]
-        # all_losses.extend(v["loss"] for v in aux_loss_res.values())
-        #
-        # ppo_loss = torch.stack(all_losses).sum()
-
-        ppo_loss = (
-            value_loss * self.value_loss_coef
-            + action_loss
+        all_losses = [
+            value_loss * self.value_loss_coef,
+            action_loss,
             - dist_entropy * self.entropy_coef
-        )
+        ]
+        all_losses.extend(v["loss"] for v in aux_loss_res.values())
+
+        ppo_loss = torch.stack(all_losses).sum()
 
         observations_gray = observations_gray.to(torch.float32)
         update_stimulations = update_stimulations.to(torch.float32)
